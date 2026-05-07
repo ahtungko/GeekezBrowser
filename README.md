@@ -35,7 +35,7 @@ It is designed to solve multi-account association issues in cross-border e-comme
 ### 🛡️ Deep Fingerprint Isolation
 *   **Hardware Randomization**: Randomly generates **CPU core count** (4/8/12/16) and **device memory** (4/8/16 GB), significantly increasing fingerprint uniqueness so every environment is unique.
 *   **Timezone & Geolocation Spoofing**:
-    - **Auto** mode: Automatically matches timezone and coordinates to the proxy IP location.
+    - **Auto** mode: Automatically resolves timezone and coordinates from the proxy exit IP at launch time.
     - Supports manual selection from 50+ global cities for precise positioning.
 *   **Language Spoofing**:
     - Supports **60+ languages** covering major regions worldwide.

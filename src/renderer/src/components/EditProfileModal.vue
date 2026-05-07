@@ -160,7 +160,7 @@ function toBrowserVersionPreset(uaMode, browserType, browserMajorVersion) {
 }
 
 // Searchable Dropdowns State
-const timezoneSearch = ref('Auto (No Change)');
+const timezoneSearch = ref('Auto (Match Proxy IP)');
 const showTimezoneList = ref(false);
 const citySearch = ref('Auto (IP Based)');
 const showCityList = ref(false);
@@ -211,7 +211,7 @@ watch(() => uiStore.editModalVisible, async (visible) => {
     
     // Timezone
     form.timezone = fp.timezone || 'Auto';
-    timezoneSearch.value = form.timezone === 'Auto' ? 'Auto (No Change)' : form.timezone;
+    timezoneSearch.value = form.timezone === 'Auto' ? 'Auto (Match Proxy IP)' : form.timezone;
 
     // City
     form.city = fp.city || null;
@@ -226,7 +226,7 @@ watch(() => uiStore.editModalVisible, async (visible) => {
 });
 
 function selectTimezone(tz) {
-  form.timezone = tz === 'Auto (No Change)' ? 'Auto' : tz;
+  form.timezone = tz === 'Auto (Match Proxy IP)' ? 'Auto' : tz;
   timezoneSearch.value = tz;
   showTimezoneList.value = false;
 }

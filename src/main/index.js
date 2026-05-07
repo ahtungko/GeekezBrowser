@@ -3687,6 +3687,62 @@ ipcMain.handle('export-data', async (e, type) => {
     return false;
 });
 
+// --- Auto timezone/geolocation resolution via proxy ---
+async function resolveGeoInfoViaProxy(socksPort, timeoutMs = 5000) {
+    try {
+        const { socket } = await Promise.race([
+            SocksClient.createConnection({
+                proxy: { host: '127.0.0.1', port: socksPort, type: 5 },
+                command: 'connect',
+                destination: { host: 'ip-api.com', port: 80 }
+            }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('SOCKS timeout')), timeoutMs))
+        ]);
+
+        return await new Promise((resolve) => {
+            let responseData = '';
+            const timer = setTimeout(() => { socket.destroy(); resolve(null); }, timeoutMs);
+
+            socket.write(
+                'GET /json/?fields=status,timezone,lat,lon,city HTTP/1.1\r\n' +
+                'Host: ip-api.com\r\n' +
+                'Connection: close\r\n' +
+                'User-Agent: GeekEZ-Browser\r\n\r\n'
+            );
+
+            socket.on('data', (chunk) => { responseData += chunk.toString(); });
+            socket.on('error', () => { clearTimeout(timer); resolve(null); });
+            socket.on('end', () => {
+                clearTimeout(timer);
+                try {
+                    const bodyStart = responseData.indexOf('\r\n\r\n');
+                    if (bodyStart === -1) return resolve(null);
+                    const body = responseData.slice(bodyStart + 4).trim();
+                    // Handle chunked transfer encoding
+                    let jsonStr = body;
+                    if (/^[0-9a-fA-F]+\r\n/.test(jsonStr)) {
+                        // Strip chunk headers: "hex\r\ndata\r\n0\r\n\r\n"
+                        const parts = jsonStr.split('\r\n');
+                        jsonStr = parts.filter((_, i) => i % 2 === 1).join('');
+                    }
+                    const json = JSON.parse(jsonStr);
+                    if (json.status !== 'success' || !json.timezone) return resolve(null);
+                    resolve({
+                        timezone: json.timezone,
+                        latitude: json.lat,
+                        longitude: json.lon,
+                        city: json.city || null
+                    });
+                } catch (e) {
+                    resolve(null);
+                }
+            });
+        });
+    } catch (e) {
+        return null;
+    }
+}
+
 // --- 核心启动逻辑 ---
 const launchProfileHandler = async (event, profileId, watermarkStyle) => {
     const sender = event.sender;
@@ -3814,6 +3870,36 @@ const launchProfileHandler = async (event, profileId, watermarkStyle) => {
 
             // 优化：减少等待时间，Xray 通常 300ms 内就能启动
             await new Promise(resolve => setTimeout(resolve, 300));
+        }
+
+        // --- Auto timezone & geolocation resolution via proxy IP ---
+        const needsTimezoneResolve = profile.fingerprint?.timezone === 'Auto';
+        const needsGeolocationResolve = !profile.fingerprint?.geolocation;
+        if (localPort && (needsTimezoneResolve || needsGeolocationResolve)) {
+            try {
+                const geoInfo = await resolveGeoInfoViaProxy(localPort, 5000);
+                if (geoInfo) {
+                    if (needsTimezoneResolve && geoInfo.timezone) {
+                        profile.fingerprint.timezone = geoInfo.timezone;
+                        console.log(`🌐 Auto timezone resolved: ${geoInfo.timezone}`);
+                    }
+                    if (needsGeolocationResolve && typeof geoInfo.latitude === 'number' && typeof geoInfo.longitude === 'number') {
+                        profile.fingerprint.geolocation = {
+                            latitude: geoInfo.latitude,
+                            longitude: geoInfo.longitude,
+                            accuracy: 500 + Math.floor(Math.random() * 500)
+                        };
+                        if (!profile.fingerprint.city && geoInfo.city) {
+                            profile.fingerprint.city = geoInfo.city;
+                        }
+                        console.log(`📍 Auto geolocation resolved: ${geoInfo.city || 'unknown'} (${geoInfo.latitude}, ${geoInfo.longitude})`);
+                    }
+                } else {
+                    console.log('⚠️ Auto geo-resolution failed, using host defaults');
+                }
+            } catch (e) {
+                console.log('⚠️ Auto geo-resolution error:', e.message);
+            }
         }
 
         // 0. Resolve language override

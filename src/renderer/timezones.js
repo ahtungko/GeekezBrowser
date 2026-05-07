@@ -1,7 +1,7 @@
 // Comprehensive IANA Timezone list for dropdown
 // Fix: Export to window for global access (module scope issue)
 const TIMEZONES = [
-    "Auto (No Change)",  // 不修改时区，用于需要访问登录页面的环境
+    "Auto (Match Proxy IP)",  // 自动匹配代理 IP 所在地时区
     // --- North America ---
     "America/New_York",        // US Eastern
     "America/Chicago",         // US Central

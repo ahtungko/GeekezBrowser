@@ -149,7 +149,7 @@ function parseBrowserVersionPreset(preset) {
 }
 
 // Searchable Dropdowns State
-const timezoneSearch = ref('Auto (No Change)');
+const timezoneSearch = ref('Auto (Match Proxy IP)');
 const showTimezoneList = ref(false);
 const citySearch = ref('Auto (IP Based)');
 const showCityList = ref(false);
@@ -180,7 +180,7 @@ const filteredLanguages = computed(() => {
 });
 
 function selectTimezone(tz) {
-  form.timezone = tz === 'Auto (No Change)' ? 'Auto' : tz;
+  form.timezone = tz === 'Auto (Match Proxy IP)' ? 'Auto' : tz;
   timezoneSearch.value = tz;
   showTimezoneList.value = false;
 }
@@ -231,7 +231,7 @@ watch(() => uiStore.addModalVisible, async (newVal) => {
       browserVersionPreset: 'none',
       webglProfile: 'none'
     });
-    timezoneSearch.value = 'Auto (No Change)';
+    timezoneSearch.value = 'Auto (Match Proxy IP)';
     citySearch.value = 'Auto (IP Based)';
     languageSearch.value = 'Auto (System Default)';
     try {
