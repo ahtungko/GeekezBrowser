@@ -931,6 +931,35 @@ function normalizeSettingsSnapshot(settings) {
     return normalizePublicApiAuthSettings(nextSettings);
 }
 
+function shouldPersistGeneratedPublicApiToken(rawToken, normalizedSettings) {
+    const normalizedToken = typeof normalizedSettings?.apiToken === 'string' ? normalizedSettings.apiToken.trim() : '';
+
+    return !!normalizedSettings?.enableApiServer
+        && normalizedSettings.apiAuthEnabled
+        && !rawToken
+        && !!normalizedToken;
+}
+
+async function normalizeExistingSettingsFile(settings) {
+    const rawToken = typeof settings?.apiToken === 'string' ? settings.apiToken.trim() : '';
+    const normalizedSettings = normalizeSettingsSnapshot(settings);
+    if (shouldPersistGeneratedPublicApiToken(rawToken, normalizedSettings)) {
+        await fs.writeJson(SETTINGS_FILE, normalizedSettings);
+        cachedCloseBehavior = normalizeCloseBehavior(normalizedSettings.closeBehavior);
+    }
+    return normalizedSettings;
+}
+
+function normalizeExistingSettingsFileSync(settings) {
+    const rawToken = typeof settings?.apiToken === 'string' ? settings.apiToken.trim() : '';
+    const normalizedSettings = normalizeSettingsSnapshot(settings);
+    if (shouldPersistGeneratedPublicApiToken(rawToken, normalizedSettings)) {
+        fs.writeFileSync(SETTINGS_FILE, JSON.stringify(normalizedSettings, null, 2));
+        cachedCloseBehavior = normalizeCloseBehavior(normalizedSettings.closeBehavior);
+    }
+    return normalizedSettings;
+}
+
 function isDirectProxy(proxyStr) {
     const value = String(proxyStr || '').trim().toLowerCase();
     return value === 'direct' || value === 'direct://';
@@ -1569,7 +1598,7 @@ function getChromiumPath() {
 function loadSettings() {
     try {
         if (fs.existsSync(SETTINGS_FILE)) {
-            return normalizeSettingsSnapshot(JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')));
+            return normalizeExistingSettingsFileSync(JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8')));
         }
     } catch (e) {
         console.error('Failed to load settings:', e);
@@ -1597,7 +1626,7 @@ function readSettingsSync() {
     try {
         if (!fs.existsSync(SETTINGS_FILE)) return normalizeSettingsSnapshot({});
         const raw = fs.readJsonSync(SETTINGS_FILE);
-        return normalizeSettingsSnapshot(raw);
+        return normalizeExistingSettingsFileSync(raw);
     } catch (e) {
         return normalizeSettingsSnapshot({});
     }
@@ -2872,7 +2901,7 @@ ipcMain.handle('get-settings', async () => {
         });
     }
     const settings = await fs.readJson(SETTINGS_FILE);
-    return normalizeSettingsSnapshot(settings);
+    return normalizeExistingSettingsFile(settings);
 });
 ipcMain.handle('save-settings', async (e, settings) => {
     const incoming = (settings && typeof settings === 'object')
