@@ -13,6 +13,16 @@ const crypto = require('crypto');
 const zlib = require('zlib');
 const { promisify } = require('util');
 const { getChromiumPath: resolveChromiumPathForApp } = require('./chromium-path');
+const {
+    INTERNAL_API_MAX_BODY_BYTES,
+    PUBLIC_API_MAX_BODY_BYTES,
+    applyCorsHeaders,
+    ensurePublicApiAuthorized,
+    normalizePublicApiAuthSettings,
+    parseJsonBody,
+    readRequestBody,
+    resolveExportAllPassword
+} = require('./api-http');
 const { CLOSE_BEHAVIOR, normalizeCloseBehavior, resolveCloseBehavior } = require('./close-behavior');
 const { fetchLatestGitHubReleaseInfo } = require('./release-check');
 const { resolveXrayAssetName } = require('./xray-assets');
@@ -159,11 +169,11 @@ let cachedCloseBehavior = CLOSE_BEHAVIOR.TRAY;
 // ============================================================================
 function createApiServer(port) {
     const server = http.createServer(async (req, res) => {
-        // CORS headers
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-        res.setHeader('Content-Type', 'application/json');
+        applyCorsHeaders(req, res, {
+            allowLoopbackOrigins: true,
+            allowExtensionOrigins: false,
+            allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+        });
 
         if (req.method === 'OPTIONS') {
             res.writeHead(200);
@@ -175,17 +185,17 @@ function createApiServer(port) {
         const pathname = url.pathname;
         const method = req.method;
 
-        // Parse body for POST/PUT
-        let body = '';
-        if (method === 'POST' || method === 'PUT') {
-            body = await new Promise(resolve => {
-                let data = '';
-                req.on('data', chunk => data += chunk);
-                req.on('end', () => resolve(data));
-            });
-        }
-
         try {
+            let body = '';
+            if (method === 'POST' || method === 'PUT') {
+                body = await readRequestBody(req, { maxBytes: PUBLIC_API_MAX_BODY_BYTES });
+            }
+
+            const currentSettings = readSettingsSync();
+            if (currentSettings.enableApiServer && currentSettings.apiAuthEnabled) {
+                ensurePublicApiAuthorized(req, currentSettings.apiToken);
+            }
+
             const result = await handleApiRequest(method, pathname, body, url.searchParams);
             res.writeHead(result.status || 200);
             res.end(JSON.stringify(result.data || result));
@@ -205,21 +215,20 @@ const INTERNAL_API_PORT = 12139;
 
 function createInternalApiServer() {
     const server = http.createServer(async (req, res) => {
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-        res.setHeader('Content-Type', 'application/json');
+        applyCorsHeaders(req, res, {
+            allowLoopbackOrigins: false,
+            allowExtensionOrigins: true,
+            allowMethods: ['POST', 'OPTIONS']
+        });
 
         if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
 
         const url = new URL(req.url, `http://localhost:${INTERNAL_API_PORT}`);
 
         if (req.method === 'POST' && url.pathname === '/api/passwords/sync') {
-            let body = await new Promise(resolve => {
-                let data = ''; req.on('data', chunk => data += chunk); req.on('end', () => resolve(data));
-            });
             try {
-                const data = JSON.parse(body);
+                let body = await readRequestBody(req, { maxBytes: INTERNAL_API_MAX_BODY_BYTES });
+                const data = parseJsonBody(body);
                 if (!data.profileId || !data.passwords) {
                     res.writeHead(400); return res.end(JSON.stringify({ success: false, error: 'profileId and passwords required' }));
                 }
@@ -228,7 +237,8 @@ function createInternalApiServer() {
                 await writeEncryptedPasswords(pwFile, data.passwords, data.profileId);
                 res.writeHead(200); res.end(JSON.stringify({ success: true, count: data.passwords.length }));
             } catch (err) {
-                res.writeHead(500); res.end(JSON.stringify({ success: false, error: err.message }));
+                res.writeHead(err.status || err.statusCode || 500);
+                res.end(JSON.stringify({ success: false, error: err.message }));
             }
         } else {
             res.writeHead(404); res.end(JSON.stringify({ success: false, error: 'Endpoint not found' }));
@@ -911,10 +921,14 @@ function normalizeSettingsSnapshot(settings) {
     if (!Array.isArray(nextSettings.subscriptions)) nextSettings.subscriptions = [];
     if (!['single', 'balance', 'failover'].includes(nextSettings.mode)) nextSettings.mode = 'single';
     nextSettings.enablePreProxy = !!nextSettings.enablePreProxy;
+    nextSettings.enableApiServer = !!nextSettings.enableApiServer;
+    nextSettings.apiPort = Number.isInteger(Number(nextSettings.apiPort))
+        ? Number(nextSettings.apiPort)
+        : 12138;
     nextSettings.notify = !!nextSettings.notify;
     nextSettings.userExtensions = normalizeUserExtensions(nextSettings.userExtensions || []);
     nextSettings.closeBehavior = normalizeCloseBehavior(nextSettings.closeBehavior);
-    return nextSettings;
+    return normalizePublicApiAuthSettings(nextSettings);
 }
 
 function isDirectProxy(proxyStr) {
@@ -1003,15 +1017,7 @@ function buildUniqueProfileName(profiles, baseName) {
 }
 
 function parseApiBody(body) {
-    if (!body) return {};
-    if (typeof body !== 'string') return body || {};
-    try {
-        return JSON.parse(body);
-    } catch (err) {
-        const parseError = new Error('Invalid JSON body');
-        parseError.status = 400;
-        throw parseError;
-    }
+    return parseJsonBody(body);
 }
 
 function normalizeFingerprintOptions(data = {}) {
@@ -1341,10 +1347,13 @@ async function handleApiRequest(method, pathname, body, params) {
 
 
 
-    // GET /api/export/all?password=xxx - Export full backup (v2)
-    if (method === 'GET' && pathname === '/api/export/all') {
-        const password = params.get('password');
-        if (!password) return { status: 400, data: { success: false, error: 'Password required. Use ?password=yourpassword' } };
+    // POST /api/export/all - Export full backup (v2)
+    if ((method === 'POST' || method === 'GET') && pathname === '/api/export/all') {
+        const password = resolveExportAllPassword({
+            method,
+            body,
+            searchParams: params
+        });
 
         const backupData = {
             version: 2,
@@ -1429,7 +1438,7 @@ async function handleApiRequest(method, pathname, body, params) {
     // POST /api/import - Import backup (YAML or encrypted)
     if (method === 'POST' && pathname === '/api/import') {
         try {
-            const data = JSON.parse(body);
+            const data = parseJsonBody(body);
             const content = data.content;
             const password = data.password;
 
@@ -1522,6 +1531,17 @@ ipcMain.handle('stop-api-server', async () => {
 
 ipcMain.handle('get-api-status', () => {
     return { running: apiServerRunning };
+});
+
+ipcMain.handle('reset-api-token', async () => {
+    const currentSettings = readSettingsSync();
+    const nextSettings = await saveSettingsWithNormalizedExtensions({
+        ...currentSettings,
+        // Resetting the token intentionally keeps public API auth enabled so normalization regenerates a fresh token.
+        apiAuthEnabled: true,
+        apiToken: ''
+    });
+    return { success: true, apiToken: nextSettings.apiToken };
 });
 
 
@@ -2845,15 +2865,11 @@ ipcMain.handle('delete-profile', async (event, id) => {
 });
 ipcMain.handle('get-settings', async () => {
     if (!fs.existsSync(SETTINGS_FILE)) {
-        return {
-            preProxies: [],
-            mode: 'single',
-            enablePreProxy: false,
+        return normalizeSettingsSnapshot({
             enableRemoteDebugging: false,
             enableUaWebglModify: false,
-            closeBehavior: CLOSE_BEHAVIOR.TRAY,
-            userExtensions: []
-        };
+            closeBehavior: CLOSE_BEHAVIOR.TRAY
+        });
     }
     const settings = await fs.readJson(SETTINGS_FILE);
     return normalizeSettingsSnapshot(settings);
