@@ -3688,59 +3688,101 @@ ipcMain.handle('export-data', async (e, type) => {
 });
 
 // --- Auto timezone/geolocation resolution via proxy ---
-async function resolveGeoInfoViaProxy(socksPort, timeoutMs = 5000) {
-    try {
-        const { socket } = await Promise.race([
-            SocksClient.createConnection({
-                proxy: { host: '127.0.0.1', port: socksPort, type: 5 },
-                command: 'connect',
-                destination: { host: 'ip-api.com', port: 80 }
-            }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('SOCKS timeout')), timeoutMs))
-        ]);
+async function resolveGeoInfoViaProxy(socksPort, timeoutMs = 8000) {
+    const maxRetries = 3;
+    const retryDelay = 800;
 
-        return await new Promise((resolve) => {
-            let responseData = '';
-            const timer = setTimeout(() => { socket.destroy(); resolve(null); }, timeoutMs);
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            console.log(`🔍 [GeoResolve] Attempt ${attempt}/${maxRetries} via SOCKS5 port ${socksPort}...`);
 
-            socket.write(
-                'GET /json/?fields=status,timezone,lat,lon,city HTTP/1.1\r\n' +
-                'Host: ip-api.com\r\n' +
-                'Connection: close\r\n' +
-                'User-Agent: GeekEZ-Browser\r\n\r\n'
-            );
+            const { socket } = await Promise.race([
+                SocksClient.createConnection({
+                    proxy: { host: '127.0.0.1', port: socksPort, type: 5 },
+                    command: 'connect',
+                    destination: { host: 'ip-api.com', port: 80 }
+                }),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('SOCKS connect timeout')), timeoutMs))
+            ]);
 
-            socket.on('data', (chunk) => { responseData += chunk.toString(); });
-            socket.on('error', () => { clearTimeout(timer); resolve(null); });
-            socket.on('end', () => {
-                clearTimeout(timer);
-                try {
-                    const bodyStart = responseData.indexOf('\r\n\r\n');
-                    if (bodyStart === -1) return resolve(null);
-                    const body = responseData.slice(bodyStart + 4).trim();
-                    // Handle chunked transfer encoding
-                    let jsonStr = body;
-                    if (/^[0-9a-fA-F]+\r\n/.test(jsonStr)) {
-                        // Strip chunk headers: "hex\r\ndata\r\n0\r\n\r\n"
-                        const parts = jsonStr.split('\r\n');
-                        jsonStr = parts.filter((_, i) => i % 2 === 1).join('');
+            console.log('🔍 [GeoResolve] SOCKS5 connected, sending HTTP request...');
+
+            const result = await new Promise((resolve) => {
+                let responseData = '';
+                let resolved = false;
+                const done = (val) => {
+                    if (resolved) return;
+                    resolved = true;
+                    clearTimeout(timer);
+                    try { socket.destroy(); } catch (e) { }
+                    resolve(val);
+                };
+
+                const timer = setTimeout(() => {
+                    console.log(`🔍 [GeoResolve] HTTP timeout after ${timeoutMs}ms, received ${responseData.length} bytes`);
+                    done(null);
+                }, timeoutMs);
+
+                // Use HTTP/1.0 to avoid chunked encoding
+                socket.write(
+                    'GET /json/?fields=status,timezone,lat,lon,city HTTP/1.0\r\n' +
+                    'Host: ip-api.com\r\n' +
+                    'Accept: */*\r\n' +
+                    'User-Agent: curl/7.68.0\r\n' +
+                    '\r\n'
+                );
+
+                // Eagerly try to parse JSON from accumulated data on each chunk
+                const tryParse = () => {
+                    const jsonStart = responseData.indexOf('{');
+                    const jsonEnd = responseData.lastIndexOf('}');
+                    if (jsonStart === -1 || jsonEnd <= jsonStart) return;
+                    try {
+                        const json = JSON.parse(responseData.slice(jsonStart, jsonEnd + 1));
+                        if (json.status === 'success' && json.timezone) {
+                            console.log(`🔍 [GeoResolve] Parsed: ${JSON.stringify(json)}`);
+                            done({
+                                timezone: json.timezone,
+                                latitude: json.lat,
+                                longitude: json.lon,
+                                city: json.city || null
+                            });
+                        }
+                    } catch (e) {
+                        // Not enough data yet, wait for more
                     }
-                    const json = JSON.parse(jsonStr);
-                    if (json.status !== 'success' || !json.timezone) return resolve(null);
-                    resolve({
-                        timezone: json.timezone,
-                        latitude: json.lat,
-                        longitude: json.lon,
-                        city: json.city || null
-                    });
-                } catch (e) {
-                    resolve(null);
-                }
+                };
+
+                socket.on('data', (chunk) => {
+                    responseData += chunk.toString();
+                    tryParse();
+                });
+                socket.on('error', (err) => {
+                    console.log(`🔍 [GeoResolve] Socket error: ${err.message}`);
+                    done(null);
+                });
+                socket.on('close', () => {
+                    if (!resolved) {
+                        console.log(`🔍 [GeoResolve] Connection closed, ${responseData.length} bytes`);
+                        tryParse();
+                        done(null);
+                    }
+                });
             });
-        });
-    } catch (e) {
-        return null;
+
+            if (result) return result;
+
+        } catch (e) {
+            console.log(`🔍 [GeoResolve] Attempt ${attempt} failed: ${e.message}`);
+        }
+
+        if (attempt < maxRetries) {
+            await new Promise(r => setTimeout(r, retryDelay));
+        }
     }
+
+    console.log('🔍 [GeoResolve] All attempts exhausted');
+    return null;
 }
 
 // --- 核心启动逻辑 ---
@@ -3875,6 +3917,7 @@ const launchProfileHandler = async (event, profileId, watermarkStyle) => {
         // --- Auto timezone & geolocation resolution via proxy IP ---
         const needsTimezoneResolve = profile.fingerprint?.timezone === 'Auto';
         const needsGeolocationResolve = !profile.fingerprint?.geolocation;
+        console.log(`🔍 [GeoResolve] Check: timezone='${profile.fingerprint?.timezone}', needsTZ=${needsTimezoneResolve}, needsGeo=${needsGeolocationResolve}, localPort=${localPort}`);
         if (localPort && (needsTimezoneResolve || needsGeolocationResolve)) {
             try {
                 const geoInfo = await resolveGeoInfoViaProxy(localPort, 5000);
@@ -3895,11 +3938,15 @@ const launchProfileHandler = async (event, profileId, watermarkStyle) => {
                         console.log(`📍 Auto geolocation resolved: ${geoInfo.city || 'unknown'} (${geoInfo.latitude}, ${geoInfo.longitude})`);
                     }
                 } else {
-                    console.log('⚠️ Auto geo-resolution failed, using host defaults');
+                    console.log('⚠️ Auto geo-resolution returned null after all retries');
                 }
             } catch (e) {
                 console.log('⚠️ Auto geo-resolution error:', e.message);
             }
+        } else if (!localPort) {
+            console.log('🔍 [GeoResolve] Skipped: no proxy (direct connection)');
+        } else {
+            console.log('🔍 [GeoResolve] Skipped: timezone and geolocation already set');
         }
 
         // 0. Resolve language override
