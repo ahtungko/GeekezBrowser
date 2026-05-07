@@ -192,6 +192,13 @@ const enTranslations = {
     apiError: "API start failed: ",
     apiPortInvalid: "Port must be between 1024-65535",
     apiPortSaved: "API port saved",
+    apiAuthToggle: "Require API token",
+    apiTokenCopy: "Copy Token",
+    apiTokenReset: "Reset Token",
+    apiTokenHint: "Clients must send Authorization: Bearer <token> or X-API-Token.",
+    apiTokenCopied: "API token copied to clipboard",
+    apiTokenCopyFailed: "Failed to copy API token: ",
+    apiTokenResetSuccess: "API token rotated successfully",
     // Developer Features
     devFeaturesTitle: "DEVELOPER FEATURES",
     uaWebglToggle: "🧬 UA & WebGL Modify",

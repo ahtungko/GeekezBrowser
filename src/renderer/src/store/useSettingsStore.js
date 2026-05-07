@@ -8,6 +8,8 @@ export const useSettingsStore = defineStore('settings', {
         enableCustomArgs: false,
         enableUaWebglModify: false,
         enableApiServer: false,
+        apiAuthEnabled: true,
+        apiToken: '',
         closeBehavior: 'tray',
         apiPort: 12138,
         apiRunning: false,
@@ -30,6 +32,8 @@ export const useSettingsStore = defineStore('settings', {
                 this.enableCustomArgs = settings.enableCustomArgs || false;
                 this.enableUaWebglModify = settings.enableUaWebglModify || false;
                 this.enableApiServer = settings.enableApiServer || false;
+                this.apiAuthEnabled = settings.apiAuthEnabled !== false;
+                this.apiToken = settings.apiToken || '';
                 this.closeBehavior = settings.closeBehavior === 'quit' ? 'quit' : 'tray';
                 this.apiPort = settings.apiPort || 12138;
                 this.watermarkStyle = settings.watermarkStyle || 'enhanced';
@@ -51,7 +55,7 @@ export const useSettingsStore = defineStore('settings', {
                     const pathInfo = await settingService.getDataPathInfo();
                     if (pathInfo) {
                         this.currentDataPath = pathInfo.currentPath || '';
-                        this.isDefaultDataPath = pathInfo.isDefault !== false;
+                        this.isDefaultDataPath = !pathInfo.isCustom;
                     }
                 } catch (e) {
                     console.warn('[SettingsStore] getDataPathInfo failed:', e);
@@ -87,6 +91,11 @@ export const useSettingsStore = defineStore('settings', {
             const settings = await ipcService.getSettings();
             settings.enableApiServer = enabled;
             await ipcService.saveSettings(settings);
+            const normalizedSettings = await ipcService.getSettings();
+            if (normalizedSettings) {
+                this.apiAuthEnabled = normalizedSettings.apiAuthEnabled !== false;
+                this.apiToken = normalizedSettings.apiToken || '';
+            }
 
             if (enabled) {
                 const res = await settingService.startApiServer(this.apiPort);
@@ -94,6 +103,18 @@ export const useSettingsStore = defineStore('settings', {
             } else {
                 await settingService.stopApiServer();
                 this.apiRunning = false;
+            }
+        },
+
+        async toggleApiAuth(enabled) {
+            this.apiAuthEnabled = enabled;
+            const settings = await ipcService.getSettings();
+            settings.apiAuthEnabled = enabled;
+            await ipcService.saveSettings(settings);
+            const normalizedSettings = await ipcService.getSettings();
+            if (normalizedSettings) {
+                this.apiAuthEnabled = normalizedSettings.apiAuthEnabled !== false;
+                this.apiToken = normalizedSettings.apiToken || '';
             }
         },
 
@@ -109,6 +130,11 @@ export const useSettingsStore = defineStore('settings', {
             const settings = await ipcService.getSettings();
             settings.apiPort = port;
             await ipcService.saveSettings(settings);
+            const normalizedSettings = await ipcService.getSettings();
+            if (normalizedSettings) {
+                this.apiAuthEnabled = normalizedSettings.apiAuthEnabled !== false;
+                this.apiToken = normalizedSettings.apiToken || '';
+            }
 
             if (this.enableApiServer) {
                 await settingService.stopApiServer();
@@ -122,6 +148,15 @@ export const useSettingsStore = defineStore('settings', {
             const settings = await ipcService.getSettings();
             settings.watermarkStyle = style;
             await ipcService.saveSettings(settings);
+        },
+
+        async resetApiToken() {
+            const res = await settingService.resetApiToken();
+            if (res?.success) {
+                this.apiAuthEnabled = true;
+                this.apiToken = res.apiToken || '';
+            }
+            return res;
         },
 
         async loadExtensions() {

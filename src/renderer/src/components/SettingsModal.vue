@@ -254,8 +254,34 @@
                                         style="font-size:11px; color:var(--accent); margin-left:auto;"
                                         data-i18n="apiDocs">📄 Docs</a>
                                 </div>
-                            </div>
+                                <div style="margin-top:10px; display:flex; flex-direction:column; gap:10px;">
+                                    <label style="display:flex; align-items:center; gap:10px; font-size:12px; color:var(--text-primary);">
+                                        <input type="checkbox" :checked="settingsStore.apiAuthEnabled"
+                                            @change="(e) => settingsStore.toggleApiAuth(e.target.checked)">
+                                        <span data-i18n="apiAuthToggle">{{ $t('apiAuthToggle') }}</span>
+                                    </label>
 
+                                    <div v-if="settingsStore.apiAuthEnabled" style="display:flex; flex-direction:column; gap:8px;">
+                                        <code style="display:block; font-size:11px; color:var(--text-secondary); word-break:break-all;">
+                                            Authorization: Bearer {{ settingsStore.apiToken }}
+                                        </code>
+                                        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                            <button class="outline" @click="handleCopyApiToken"
+                                                style="padding:6px 12px; font-size:11px;" data-i18n="apiTokenCopy">
+                                                {{ $t('apiTokenCopy') }}
+                                            </button>
+                                            <button class="outline" @click="handleResetApiToken"
+                                                style="padding:6px 12px; font-size:11px;" data-i18n="apiTokenReset">
+                                                {{ $t('apiTokenReset') }}
+                                            </button>
+                                        </div>
+                                        <div style="font-size:11px; color:var(--text-secondary); opacity:0.85;"
+                                            data-i18n="apiTokenHint">
+                                            {{ $t('apiTokenHint') }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                             <div style="height:1px; background:var(--border); margin:0 16px;"></div>
 
                             <!-- Window Close Behavior -->
@@ -608,6 +634,28 @@ const handleOpenApiDocs = () => {
     ipcService.openUrl('https://browser.geekez.net/doc.html#doc-api');
 };
 
+const handleCopyApiToken = async () => {
+    try {
+        await navigator.clipboard.writeText(settingsStore.apiToken || '');
+        uiStore.showAlert(window.t('apiTokenCopied'));
+    } catch (e) {
+        uiStore.showAlert(window.t('apiTokenCopyFailed') + (e?.message || 'Unknown error'));
+    }
+};
+
+const handleResetApiToken = async () => {
+    try {
+        const res = await settingsStore.resetApiToken();
+        if (res?.success) {
+            uiStore.showAlert(window.t('apiTokenResetSuccess'));
+            return;
+        }
+        uiStore.showAlert((res && res.error) || 'Failed to reset API token');
+    } catch (e) {
+        uiStore.showAlert((e && e.message) || 'Failed to reset API token');
+    }
+};
+
 const handleSelectDataDirectory = async () => {
     const path = await settingService.selectDataDirectory();
     if (!path) return;
@@ -625,15 +673,35 @@ const handleSelectDataDirectory = async () => {
         } catch (e) {
             uiStore.showAlert(window.t('dataPathError') + e.message);
         }
+    }, '', {
+        onCancel: async () => {
+            try {
+                const res = await settingService.setDataDirectory(path, false);
+                if (res.success) {
+                    showRestartWarning.value = true;
+                    uiStore.showAlert(window.t('dataPathSuccess'));
+                } else {
+                    uiStore.showAlert(window.t('dataPathError') + res.error);
+                }
+            } catch (e) {
+                uiStore.showAlert(window.t('dataPathError') + e.message);
+            }
+        }
     });
 };
 
 const handleResetDataDirectory = async () => {
     uiStore.showConfirm(window.t('dataPathConfirmReset'), async () => {
-        const res = await settingService.resetDataDirectory();
-        if (res.success) {
-            showRestartWarning.value = true;
-            uiStore.showAlert(window.t('dataPathResetSuccess'));
+        try {
+            const res = await settingService.resetDataDirectory();
+            if (res.success) {
+                showRestartWarning.value = true;
+                uiStore.showAlert(window.t('dataPathResetSuccess'));
+            } else {
+                uiStore.showAlert(window.t('dataPathError') + (res?.error || 'Unknown error'));
+            }
+        } catch (e) {
+            uiStore.showAlert(window.t('dataPathError') + e.message);
         }
     });
 };

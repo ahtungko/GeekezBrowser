@@ -194,6 +194,13 @@ window.zhCN = {
     apiError: "API 启动失败: ",
     apiPortInvalid: "端口号必须在 1024-65535 之间",
     apiPortSaved: "API 端口已保存",
+    apiAuthToggle: "启用 API Token 验证",
+    apiTokenCopy: "复制 Token",
+    apiTokenReset: "重置 Token",
+    apiTokenHint: "客户端需携带 Authorization: Bearer <token> 或 X-API-Token。",
+    apiTokenCopied: "API Token 已复制到剪贴板",
+    apiTokenCopyFailed: "复制 API Token 失败: ",
+    apiTokenResetSuccess: "API Token 已成功重置",
     // 开发者功能
     devFeaturesTitle: "开发者选项",
     uaWebglToggle: "🧬 UA及WebGL修改",
