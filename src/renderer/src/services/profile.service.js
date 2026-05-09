@@ -23,12 +23,16 @@ export const profileService = {
             const msg = window.electronAPI && typeof window.electronAPI.launchProfile === 'function'
                 ? await window.electronAPI.launchProfile(id, watermarkStyle)
                 : await ipcService.invoke('launch-profile', id, watermarkStyle);
+            const normalized = typeof msg === 'string'
+                ? { message: msg, warnings: [] }
+                : (msg && typeof msg === 'object' ? msg : { message: '', warnings: [] });
             return {
                 success: true,
-                message: msg || ''
+                message: normalized.message || '',
+                warnings: Array.isArray(normalized.warnings) ? normalized.warnings : []
             };
         } catch (error) {
-            return { success: false, message: error.message || 'Launch failed' };
+            return { success: false, message: error.message || 'Launch failed', warnings: [] };
         }
     },
 

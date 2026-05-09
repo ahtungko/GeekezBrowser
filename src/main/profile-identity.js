@@ -55,6 +55,13 @@ function generatePersonaSeed() {
     return crypto.randomBytes(16).toString('hex');
 }
 
+function normalizeNetworkMeta(network = {}) {
+    return {
+        country: String(network?.country || '').trim().toUpperCase(),
+        region: String(network?.region || '').trim().toLowerCase()
+    };
+}
+
 function hashSeed(personaSeed, slot = 'default') {
     const seed = String(personaSeed || '').trim();
     const digest = crypto.createHash('sha256').update(`${seed}:${slot}`).digest();
@@ -137,6 +144,7 @@ function ensureProfileIdentityMeta(profile = {}) {
 
     const existingSeed = typeof next.personaSeed === 'string' ? next.personaSeed.trim() : '';
     next.personaSeed = existingSeed || generatePersonaSeed();
+    next.network = normalizeNetworkMeta(next.network);
 
     return next;
 }
@@ -149,6 +157,7 @@ module.exports = {
     derivePersonaFingerprintOptions,
     ensureProfileIdentityMeta,
     generatePersonaSeed,
+    normalizeNetworkMeta,
     normalizeEnvironmentType,
     normalizeProfileIdentityList,
     VALID_ENVIRONMENT_TYPES

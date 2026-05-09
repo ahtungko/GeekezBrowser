@@ -54,6 +54,8 @@ test('normalizeProfileIdentityList updates every profile entry', () => {
     assert.match(profiles[0].personaSeed, /^[A-Fa-f0-9]{32}$/);
     assert.equal(profiles[1].environmentType, 'disposable');
     assert.equal(profiles[1].personaSeed, '12341234123412341234123412341234');
+    assert.deepEqual(profiles[0].network, { country: '', region: '' });
+    assert.deepEqual(profiles[1].network, { country: '', region: '' });
 });
 
 test('derivePersonaFingerprintOptions is deterministic for the same persona seed', () => {
@@ -91,4 +93,20 @@ test('derivePersonaFingerprintOptions preserves explicit fingerprint choices', (
     assert.equal(derived.deviceMemory, 8);
     assert.equal(derived.webglProfile, 'mac_apple_m2');
     assert.deepEqual(derived.screen, { width: 1440, height: 900 });
+});
+
+test('ensureProfileIdentityMeta preserves explicit network metadata', () => {
+    const profile = ensureProfileIdentityMeta({
+        id: 'p3',
+        name: 'Profile 3',
+        network: {
+            country: 'JP',
+            region: 'asia'
+        }
+    });
+
+    assert.deepEqual(profile.network, {
+        country: 'JP',
+        region: 'asia'
+    });
 });

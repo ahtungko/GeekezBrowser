@@ -33,6 +33,7 @@ const {
     resolveExportAllPassword
 } = require('./api-http');
 const { buildManagedLaunchArgs, sanitizeCustomLaunchArgs } = require('./launch-security');
+const { buildNetworkConsistencyWarnings } = require('./network-consistency');
 const { resolvePathInsideBase } = require('./path-safety');
 const { derivePersonaFingerprintOptions, ensureProfileIdentityMeta, normalizeProfileIdentityList } = require('./profile-identity');
 
@@ -3960,6 +3961,7 @@ const launchProfileHandler = async (event, profileId, watermarkStyle) => {
     let xrayProcess = null;
     let logFd;
     let browser = null;
+    let launchWarnings = [];
     try {
         const profileDir = path.join(DATA_PATH, profileId);
         const userDataDir = path.join(profileDir, 'browser_data');
@@ -4003,9 +4005,11 @@ const launchProfileHandler = async (event, profileId, watermarkStyle) => {
         const needsTimezoneResolve = profile.fingerprint?.timezone === 'Auto';
         const needsGeolocationResolve = !profile.fingerprint?.geolocation;
         console.log(`🔍 [GeoResolve] Check: timezone='${profile.fingerprint?.timezone}', needsTZ=${needsTimezoneResolve}, needsGeo=${needsGeolocationResolve}, localPort=${localPort}`);
+        let resolvedGeoInfo = null;
         if (localPort && (needsTimezoneResolve || needsGeolocationResolve)) {
             try {
                 const geoInfo = await resolveGeoInfoViaProxy(localPort, 5000);
+                resolvedGeoInfo = geoInfo;
                 if (geoInfo) {
                     if (needsTimezoneResolve && geoInfo.timezone) {
                         profile.fingerprint.timezone = geoInfo.timezone;
@@ -4033,6 +4037,11 @@ const launchProfileHandler = async (event, profileId, watermarkStyle) => {
         } else {
             console.log('🔍 [GeoResolve] Skipped: timezone and geolocation already set');
         }
+
+        launchWarnings = buildNetworkConsistencyWarnings({
+            profile,
+            geoInfo: resolvedGeoInfo
+        });
 
         // 0. Resolve language override
         const configuredLang = profile.fingerprint?.language;
@@ -4486,7 +4495,10 @@ const launchProfileHandler = async (event, profileId, watermarkStyle) => {
             }
         });
 
-        return switchMsg;
+        return {
+            message: switchMsg || 'Launched',
+            warnings: launchWarnings
+        };
     } catch (err) {
         try {
             if (browser) await browser.close();

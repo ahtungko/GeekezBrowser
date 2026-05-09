@@ -35,6 +35,18 @@
 
         <div class="flex-row">
           <div class="flex-1">
+            <label class="label-tiny">{{ $t('networkCountryLabel') }}</label>
+            <input v-model="form.networkCountry" type="text" placeholder="JP" spellcheck="false" autocomplete="off">
+          </div>
+          <div class="flex-1">
+            <label class="label-tiny">{{ $t('networkRegionLabel') }}</label>
+            <input v-model="form.networkRegion" type="text" placeholder="asia" spellcheck="false" autocomplete="off">
+          </div>
+        </div>
+        <div class="hint-text">{{ $t('networkMetaHint') }}</div>
+
+        <div class="flex-row">
+          <div class="flex-1">
             <label class="label-tiny">{{ $t('preProxySetting') }}</label>
             <select v-model="form.preProxyOverride">
               <option value="default">{{ $t('optDefault') }}</option>
@@ -132,6 +144,8 @@ const form = reactive({
   city: 'Auto (IP Based)',
   language: 'auto',
   environmentType: 'persistent',
+  networkCountry: '',
+  networkRegion: '',
   preProxyOverride: 'default',
   resW: null,
   resH: null,
@@ -233,6 +247,8 @@ watch(() => uiStore.addModalVisible, async (newVal) => {
       city: 'Auto (IP Based)',
       language: 'auto',
       environmentType: 'persistent',
+      networkCountry: '',
+      networkRegion: '',
       preProxyOverride: 'default',
       resW: null,
       resH: null,
@@ -301,6 +317,10 @@ async function handleSave() {
         geolocation: form.geolocation,
         language: form.language,
         environmentType: form.environmentType,
+        network: {
+          country: form.networkCountry,
+          region: form.networkRegion
+        },
         screen,
         uaMode: browserPreset.uaMode,
         preProxyOverride: form.preProxyOverride,

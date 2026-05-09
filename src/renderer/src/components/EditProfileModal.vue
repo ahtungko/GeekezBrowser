@@ -69,6 +69,18 @@
         <label class="label-tiny mt-10">{{ $t('proxyLink') }}</label>
         <textarea v-model="form.proxyStr" rows="4"></textarea>
 
+        <div class="flex-row mt-10">
+          <div class="flex-1">
+            <label class="label-tiny">{{ $t('networkCountryLabel') }}</label>
+            <input v-model="form.networkCountry" type="text" placeholder="JP">
+          </div>
+          <div class="flex-1">
+            <label class="label-tiny">{{ $t('networkRegionLabel') }}</label>
+            <input v-model="form.networkRegion" type="text" placeholder="asia">
+          </div>
+        </div>
+        <div class="hint-text">{{ $t('networkMetaHint') }}</div>
+
         <div class="flex-row">
           <div class="flex-1">
             <label class="label-tiny">{{ $t('preProxySetting') }}</label>
@@ -132,6 +144,8 @@ const form = reactive({
   city: 'Auto (IP Based)',
   language: 'auto',
   environmentType: 'persistent',
+  networkCountry: '',
+  networkRegion: '',
   preProxyOverride: 'default',
   resW: 1920,
   resH: 1080,
@@ -211,6 +225,8 @@ watch(() => uiStore.editModalVisible, async (visible) => {
     form.proxyStr = p.proxyStr;
     form.tags = (p.tags || []).join(', ');
     form.environmentType = p.environmentType || 'persistent';
+    form.networkCountry = p.network?.country || '';
+    form.networkRegion = p.network?.region || '';
     form.preProxyOverride = p.preProxyOverride || 'default';
     form.resW = fp.screen?.width || 1920;
     form.resH = fp.screen?.height || 1080;
@@ -289,6 +305,10 @@ async function handleSave() {
       proxyStr: form.proxyStr,
       tags: tagsRaw.split(/[,，]/).map(s => s.trim()).filter(s => s),
       environmentType: form.environmentType,
+      network: {
+        country: form.networkCountry,
+        region: form.networkRegion
+      },
       preProxyOverride: form.preProxyOverride,
       uaMode: browserPreset.uaMode,
       browserType: browserPreset.browserType,

@@ -18,6 +18,7 @@ test('build output does not contain unresolved local helper requires', () => {
     const repoRoot = path.resolve(__dirname, '../..');
     const expectedBuildFiles = [
         'out/main/api-http.js',
+        'out/main/network-consistency.js',
         'out/main/path-safety.js',
         'out/main/launch-security.js',
         'out/main/profile-identity.js'

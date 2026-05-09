@@ -18,6 +18,15 @@
                 </span>
                 <span class="tag">{{ displayProto }}</span>
                 <span class="tag">{{ displayScreen }}</span>
+                <span
+                    class="tag"
+                    :style="networkSummary.level === 'warn'
+                        ? { border: '1px solid #f39c12', color: '#f39c12', background: 'rgba(243,156,18,0.12)' }
+                        : (networkSummary.level === 'ok'
+                            ? { border: '1px solid #2ecc71', color: '#2ecc71', background: 'rgba(46,204,113,0.12)' }
+                            : { border: '1px solid var(--border)', color: 'var(--text-secondary)', background: 'transparent' })">
+                    {{ networkSummary.label }}
+                </span>
                 <span class="tag" style="border:1px solid var(--accent);">
                     <select class="quick-switch-select no-drag" :value="profile.preProxyOverride || 'default'" @change="quickUpdatePreProxy($event.target.value)">
                         <option value="default">{{ t('qsDefault') }}</option>
@@ -40,6 +49,7 @@ import { computed } from 'vue';
 import { useUIStore } from '../store/useUIStore';
 import { useProfileStore } from '../store/useProfileStore';
 import { profileService } from '../services/profile.service';
+import { buildProfileNetworkSummary } from '../utils/networkConsistency';
 
 const uiStore = useUIStore();
 const profileStore = useProfileStore();
@@ -82,6 +92,8 @@ const displayScreen = computed(() => {
     return '0x0';
 });
 
+const networkSummary = computed(() => buildProfileNetworkSummary(props.profile));
+
 const quickUpdatePreProxy = async (val) => {
     const p = profileStore.profiles.find(x => x.id === props.profile.id);
     if (p) {
@@ -105,6 +117,10 @@ const launch = async () => {
     const res = await profileService.launch(props.profile.id);
     if (!res.success && res.message) {
         uiStore.showAlert('Error: ' + res.message);
+        return;
+    }
+    if (Array.isArray(res.warnings) && res.warnings.length > 0) {
+        uiStore.showAlert(`Launch warnings:\n- ${res.warnings.join('\n- ')}`);
     }
 };
 
