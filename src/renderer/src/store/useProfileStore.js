@@ -11,15 +11,37 @@ export const useProfileStore = defineStore('profile', () => {
     const selectedIds = ref([]);
     const viewMode = ref(localStorage.getItem('geekez_view') || 'list');
 
+    const callDirect = async (methodName, fallback) => {
+        if (window.electronAPI && typeof window.electronAPI[methodName] === 'function') {
+            return await window.electronAPI[methodName](...(Array.isArray(fallback?.args) ? fallback.args : []));
+        }
+        return await fallback.fn();
+    };
+
     // Actions
-    const loadProfiles = async () => {
+    const loadProfiles = async ({ strict = false } = {}) => {
         try {
-            profiles.value = await profileService.loadProfiles();
-            runningIds.value = await profileService.getRunningIds();
+            const nextProfiles = await callDirect('getProfiles', {
+                fn: () => profileService.loadProfiles()
+            });
+            if (!Array.isArray(nextProfiles)) {
+                throw new Error(`Expected profiles array from get-profiles, received ${nextProfiles === null ? 'null' : typeof nextProfiles}`);
+            }
+
+            const nextRunningIds = await callDirect('getRunningIds', {
+                fn: () => profileService.getRunningIds()
+            });
+            if (!Array.isArray(nextRunningIds)) {
+                throw new Error(`Expected running id array from get-running-ids, received ${nextRunningIds === null ? 'null' : typeof nextRunningIds}`);
+            }
+
+            profiles.value = nextProfiles;
+            runningIds.value = nextRunningIds;
             const profileIdSet = new Set(profiles.value.map(p => p.id));
             selectedIds.value = selectedIds.value.filter(id => profileIdSet.has(id));
         } catch (e) {
             console.error('Failed to load profiles:', e);
+            if (strict) throw e;
         }
     };
 
@@ -92,8 +114,11 @@ export const useProfileStore = defineStore('profile', () => {
 
     const createProfile = async (data) => {
         try {
-            await profileService.saveProfile(data);
-            await loadProfiles();
+            await callDirect('saveProfile', {
+                args: [data],
+                fn: () => profileService.saveProfile(data)
+            });
+            await loadProfiles({ strict: true });
         } catch (e) {
             console.error('Failed to create profile:', e);
             throw e;
@@ -102,8 +127,11 @@ export const useProfileStore = defineStore('profile', () => {
 
     const updateProfile = async (profile) => {
         try {
-            await profileService.updateProfile(profile);
-            await loadProfiles();
+            await callDirect('updateProfile', {
+                args: [profile],
+                fn: () => profileService.updateProfile(profile)
+            });
+            await loadProfiles({ strict: true });
         } catch (e) {
             console.error('Failed to update profile:', e);
             throw e;
@@ -112,8 +140,11 @@ export const useProfileStore = defineStore('profile', () => {
 
     const deleteProfile = async (id) => {
         try {
-            await profileService.deleteProfile(id);
-            await loadProfiles();
+            await callDirect('deleteProfile', {
+                args: [id],
+                fn: () => profileService.deleteProfile(id)
+            });
+            await loadProfiles({ strict: true });
         } catch (e) {
             console.error('Failed to delete profile:', e);
             throw e;

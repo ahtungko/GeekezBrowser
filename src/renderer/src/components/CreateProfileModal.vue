@@ -12,6 +12,13 @@
         <label class="label-tiny">{{ $t('tagsLabel') }}</label>
         <input v-model="form.tags" type="text" placeholder="tiktok, fb..." spellcheck="false" autocomplete="off">
 
+        <label class="label-tiny mt-10">{{ $t('environmentTypeLabel') }}</label>
+        <select v-model="form.environmentType">
+          <option value="persistent">{{ $t('environmentTypePersistent') }}</option>
+          <option value="disposable">{{ $t('environmentTypeDisposable') }}</option>
+        </select>
+        <div class="hint-text">{{ $t('environmentTypeHint') }}</div>
+
         <label class="label-tiny">{{ $t('timezoneLabel') }}</label>
         <div class="timezone-wrapper">
           <input v-model="timezoneSearch" type="text" placeholder="Type to search or select..." autocomplete="off" @focus="showTimezoneList = true">
@@ -84,6 +91,7 @@
           <label class="label-tiny">{{ $t('customArgsLabel') }}</label>
           <textarea v-model="form.customArgs" rows="2" placeholder="--start-maximized" class="mono-text"></textarea>
           <div class="hint-text">{{ $t('customArgsHint') }}</div>
+          <div class="hint-text">{{ $t('customArgsGuardHint') }}</div>
         </div>
 
         <div class="hint-text mt-10">{{ $t('autoFingerprint') }}</div>
@@ -123,6 +131,7 @@ const form = reactive({
   timezone: 'Auto',
   city: 'Auto (IP Based)',
   language: 'auto',
+  environmentType: 'persistent',
   preProxyOverride: 'default',
   resW: null,
   resH: null,
@@ -223,6 +232,7 @@ watch(() => uiStore.addModalVisible, async (newVal) => {
       timezone: 'Auto',
       city: 'Auto (IP Based)',
       language: 'auto',
+      environmentType: 'persistent',
       preProxyOverride: 'default',
       resW: null,
       resH: null,
@@ -290,6 +300,7 @@ async function handleSave() {
         city: form.city,
         geolocation: form.geolocation,
         language: form.language,
+        environmentType: form.environmentType,
         screen,
         uaMode: browserPreset.uaMode,
         preProxyOverride: form.preProxyOverride,

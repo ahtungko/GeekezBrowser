@@ -13,6 +13,13 @@ const crypto = require('crypto');
 const zlib = require('zlib');
 const { promisify } = require('util');
 const { getChromiumPath: resolveChromiumPathForApp } = require('./chromium-path');
+const { CLOSE_BEHAVIOR, normalizeCloseBehavior, resolveCloseBehavior } = require('./close-behavior');
+const { fetchLatestGitHubReleaseInfo } = require('./release-check');
+const { resolveXrayAssetName } = require('./xray-assets');
+const gzip = promisify(zlib.gzip);
+const gunzip = promisify(zlib.gunzip);
+const initSqlJs = require('sql.js');
+const { SocksClient } = require('socks');
 const {
     INTERNAL_API_MAX_BODY_BYTES,
     PUBLIC_API_MAX_BODY_BYTES,
@@ -25,14 +32,9 @@ const {
     readRequestBody,
     resolveExportAllPassword
 } = require('./api-http');
+const { buildManagedLaunchArgs, sanitizeCustomLaunchArgs } = require('./launch-security');
 const { resolvePathInsideBase } = require('./path-safety');
-const { CLOSE_BEHAVIOR, normalizeCloseBehavior, resolveCloseBehavior } = require('./close-behavior');
-const { fetchLatestGitHubReleaseInfo } = require('./release-check');
-const { resolveXrayAssetName } = require('./xray-assets');
-const gzip = promisify(zlib.gzip);
-const gunzip = promisify(zlib.gunzip);
-const initSqlJs = require('sql.js');
-const { SocksClient } = require('socks');
+const { derivePersonaFingerprintOptions, ensureProfileIdentityMeta, normalizeProfileIdentityList } = require('./profile-identity');
 
 const uuidv4 = () => crypto.randomUUID();
 const INTERNAL_API_TOKEN = generateInternalApiToken();
@@ -1090,6 +1092,8 @@ function normalizeFingerprintOptions(data = {}) {
         language: firstDefined(data.language, inputFp.language),
         languages: firstDefined(data.languages, inputFp.languages),
         platform: firstDefined(data.platform, inputFp.platform),
+        personaSeed: firstDefined(data.personaSeed, inputFp.personaSeed),
+        environmentType: firstDefined(data.environmentType, inputFp.environmentType),
         hardwareConcurrency: firstDefined(data.hardwareConcurrency, inputFp.hardwareConcurrency),
         deviceMemory: firstDefined(data.deviceMemory, inputFp.deviceMemory),
         canvasNoise: firstDefined(data.canvasNoise, inputFp.canvasNoise),
@@ -1120,7 +1124,7 @@ function normalizeFingerprintOptions(data = {}) {
 }
 
 function normalizeFingerprint(data = {}) {
-    const options = normalizeFingerprintOptions(data);
+    const options = derivePersonaFingerprintOptions(normalizeFingerprintOptions(data));
     const generated = generateFingerprint(options);
 
     return {
@@ -1230,7 +1234,7 @@ async function buildProfileFromInput(rawData, profiles, settings, existingProfil
     const fingerprint = normalizeFingerprint(mergedFingerprintSource);
     const debugPort = await allocateDebugPortIfNeeded(settings, profiles, firstDefined(data.debugPort, existingProfile?.debugPort));
 
-    return {
+    return ensureProfileIdentityMeta({
         ...(existingProfile || {}),
         id: existingProfile?.id || uuidv4(),
         name: uniqueName,
@@ -1240,9 +1244,36 @@ async function buildProfileFromInput(rawData, profiles, settings, existingProfil
         preProxyOverride: firstDefined(data.preProxyOverride, existingProfile?.preProxyOverride, 'default'),
         debugPort,
         customArgs: firstDefined(data.customArgs, existingProfile?.customArgs, '') || '',
+        environmentType: firstDefined(data.environmentType, existingProfile?.environmentType, 'persistent'),
+        personaSeed: firstDefined(data.personaSeed, existingProfile?.personaSeed, ''),
         isSetup: existingProfile?.isSetup || false,
         createdAt: existingProfile?.createdAt || Date.now()
-    };
+    });
+}
+
+function hasProfileIdentityBackfillChanges(rawProfiles, normalizedProfiles) {
+    if (!Array.isArray(rawProfiles) || rawProfiles.length !== normalizedProfiles.length) {
+        return true;
+    }
+
+    return rawProfiles.some((profile, index) => {
+        const normalized = normalizedProfiles[index] || {};
+        return profile?.environmentType !== normalized.environmentType
+            || profile?.personaSeed !== normalized.personaSeed;
+    });
+}
+
+async function readProfilesWithIdentityMeta({ persist = false } = {}) {
+    if (!fs.existsSync(PROFILES_FILE)) return [];
+
+    const rawProfiles = await fs.readJson(PROFILES_FILE).catch(() => []);
+    const normalizedProfiles = normalizeProfileIdentityList(rawProfiles);
+
+    if (persist && hasProfileIdentityBackfillChanges(rawProfiles, normalizedProfiles)) {
+        await fs.writeJson(PROFILES_FILE, normalizedProfiles);
+    }
+
+    return normalizedProfiles;
 }
 
 // --- Chrome 密码解密辅助函数 ---
@@ -2825,9 +2856,11 @@ ipcMain.handle('download-xray-update', async (e, url) => {
     }
 });
 ipcMain.handle('get-running-ids', () => Object.keys(activeProcesses));
-ipcMain.handle('get-profiles', async () => { if (!fs.existsSync(PROFILES_FILE)) return []; return fs.readJson(PROFILES_FILE); });
+ipcMain.handle('get-profiles', async () => {
+    return await readProfilesWithIdentityMeta({ persist: true });
+});
 ipcMain.handle('update-profile', async (event, updatedProfile) => {
-    const profiles = fs.existsSync(PROFILES_FILE) ? await fs.readJson(PROFILES_FILE) : [];
+    const profiles = await readProfilesWithIdentityMeta();
     const index = profiles.findIndex(p => p.id === updatedProfile.id);
     if (index === -1) return false;
 
@@ -2840,7 +2873,7 @@ ipcMain.handle('update-profile', async (event, updatedProfile) => {
     return true;
 });
 ipcMain.handle('save-profile', async (event, data) => {
-    const profiles = fs.existsSync(PROFILES_FILE) ? await fs.readJson(PROFILES_FILE) : [];
+    const profiles = await readProfilesWithIdentityMeta();
     const settings = fs.existsSync(SETTINGS_FILE) ? await fs.readJson(SETTINGS_FILE) : {};
     const newProfile = await buildProfileFromInput(data, profiles, settings);
     profiles.push(newProfile);
@@ -4046,77 +4079,42 @@ const launchProfileHandler = async (event, profileId, watermarkStyle) => {
 
         // 4. 构建启动参数（性能优化）
 
-        const disabledFeatures = [
-            'IsolateOrigins',
-            'site-per-process',
-            'ExtensionsMenuAccessControl',
-            'WebGPU'
-        ];
-        if (process.platform === 'win32') {
-            disabledFeatures.push('StartupLaunch', 'StartupBoost');
-        }
-
-        const launchArgs = [
-            `--user-data-dir=${userDataDir}`,
-            `--window-size=${profile.fingerprint?.window?.width || 1280},${profile.fingerprint?.window?.height || 800}`,
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-blink-features=AutomationControlled',
-            `--disable-features=${disabledFeatures.join(',')}`,
-            '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
-            `--disable-extensions-except=${extPaths}`,
-            `--load-extension=${extPaths}`,
-            // 性能优化参数
-            '--no-first-run',                    // 跳过首次运行向导
-            '--no-default-browser-check',        // 跳过默认浏览器检查
-            '--disable-session-crashed-bubble',  // 隐藏恢复会话提示气泡
-            '--disable-background-timer-throttling', // 防止后台标签页被限速
-            '--disable-backgrounding-occluded-windows',
-            '--disable-renderer-backgrounding',
-            '--disable-dev-shm-usage',           // 减少共享内存使用
-            '--disk-cache-size=52428800',        // 限制磁盘缓存为 50MB
-            '--media-cache-size=52428800'        // 限制媒体缓存为 50MB
-        ];
-        if (shouldRestoreSession) {
-            launchArgs.push('--restore-last-session');
-        }
-
-        if (localPort) {
-            launchArgs.unshift(`--proxy-server=socks5://127.0.0.1:${localPort}`);
-        } else {
-            launchArgs.unshift('--no-proxy-server');
-        }
-
-        if (profile.fingerprint?.userAgent) {
-            launchArgs.push(`--user-agent=${profile.fingerprint.userAgent}`);
-        }
-        if (hasLanguageOverride) {
-            launchArgs.push(`--lang=${targetLang}`);
-            launchArgs.push(`--accept-lang=${targetLang}`);
-        }
-
         // 5. Remote Debugging Port (if enabled)
         const remoteDebugPort = normalizeDebugPort(profile.debugPort);
-        if (settings.enableRemoteDebugging && remoteDebugPort) {
-            launchArgs.push(`--remote-debugging-port=${remoteDebugPort}`);
+        const effectiveRemoteDebugPort = settings.enableRemoteDebugging ? remoteDebugPort : null;
+        const launchArgs = buildManagedLaunchArgs({
+            userDataDir,
+            windowWidth: profile.fingerprint?.window?.width || 1280,
+            windowHeight: profile.fingerprint?.window?.height || 800,
+            extPaths,
+            shouldRestoreSession,
+            localPort,
+            userAgent: profile.fingerprint?.userAgent || '',
+            targetLang: hasLanguageOverride ? targetLang : '',
+            remoteDebugPort: effectiveRemoteDebugPort,
+            platform: process.platform
+        });
+
+        if (effectiveRemoteDebugPort) {
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             console.log('⚠️  REMOTE DEBUGGING ENABLED');
-            console.log(`📡 Port: ${remoteDebugPort}`);
-            console.log(`🔗 Connect: chrome://inspect or ws://localhost:${remoteDebugPort}`);
+            console.log(`📡 Port: ${effectiveRemoteDebugPort}`);
+            console.log(`🔗 Connect: chrome://inspect or ws://127.0.0.1:${effectiveRemoteDebugPort}`);
             console.log('⚠️  WARNING: May increase automation detection risk!');
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         }
 
         // 6. Custom Launch Arguments (if enabled)
         if (settings.enableCustomArgs && profile.customArgs) {
-            const customArgsList = profile.customArgs
-                .split(/[\n\s]+/)
-                .map(arg => arg.trim())
-                .filter(arg => arg && arg.startsWith('--'));
+            const { allowedArgs, blockedArgs } = sanitizeCustomLaunchArgs(profile.customArgs);
 
-            if (customArgsList.length > 0) {
-                launchArgs.push(...customArgsList);
-                console.log('⚡ Custom Args:', customArgsList.join(' '));
+            if (blockedArgs.length > 0) {
+                console.warn(`Blocked high-risk custom args for profile ${profile.id || profile.name}:`, blockedArgs.map(item => item.arg).join(' '));
+            }
+
+            if (allowedArgs.length > 0) {
+                launchArgs.push(...allowedArgs);
+                console.log('⚡ Custom Args:', allowedArgs.join(' '));
             }
         }
 

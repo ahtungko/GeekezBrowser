@@ -71,6 +71,43 @@ window.profileStore = profileStore;
 const showSplash = ref(true);
 const isFadingOut = ref(false);
 
+function diagnoseElectronBridge() {
+    const requiredMethods = [
+        'getProfiles',
+        'saveProfile',
+        'updateProfile',
+        'deleteProfile',
+        'launchProfile',
+        'getSettings',
+        'saveSettings',
+        'invoke',
+        'getRunningIds'
+    ];
+
+    const api = window.electronAPI;
+    const availableMethods = api && typeof api === 'object'
+        ? Object.keys(api).sort()
+        : [];
+    const missingMethods = requiredMethods.filter((name) => !availableMethods.includes(name));
+
+    if (typeof api !== 'object' || missingMethods.length > 0) {
+        const bridgeType = typeof api;
+        const message = [
+            '[Bridge Diagnostic]',
+            `window.electronAPI type: ${bridgeType}`,
+            `Missing methods: ${missingMethods.length > 0 ? missingMethods.join(', ') : '(none)'}`,
+            `Available methods: ${availableMethods.length > 0 ? availableMethods.join(', ') : '(none)'}`
+        ].join('\n');
+
+        console.error(message);
+        uiStore.showAlert(message);
+        return false;
+    }
+
+    console.log('[Bridge Diagnostic] electronAPI OK:', availableMethods);
+    return true;
+}
+
 onMounted(async () => {
     console.log('[App] Mounted, starting initialization...');
     
@@ -86,6 +123,7 @@ onMounted(async () => {
 
     // 2. 异步执行初始化
     try {
+        diagnoseElectronBridge();
         console.log('[App] Initializing service listeners...');
         profileService.onStatusChange(({ id, status }) => {
             if (window.profileStore) {

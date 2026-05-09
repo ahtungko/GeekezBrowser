@@ -12,6 +12,13 @@
         <label class="label-tiny">{{ $t('tagsLabel') }}</label>
         <input v-model="form.tags" type="text" placeholder="tiktok, fb...">
 
+        <label class="label-tiny mt-10">{{ $t('environmentTypeLabel') }}</label>
+        <select v-model="form.environmentType">
+          <option value="persistent">{{ $t('environmentTypePersistent') }}</option>
+          <option value="disposable">{{ $t('environmentTypeDisposable') }}</option>
+        </select>
+        <div class="hint-text">{{ $t('environmentTypeHint') }}</div>
+
         <label class="label-tiny">{{ $t('timezoneLabel') }}</label>
         <div class="timezone-wrapper">
           <input v-model="timezoneSearch" type="text" placeholder="Type to search or select..." autocomplete="off" @focus="showTimezoneList = true">
@@ -91,6 +98,7 @@
           <label class="label-tiny">{{ $t('customArgsLabel') }}</label>
           <textarea v-model="form.customArgs" rows="2" placeholder="--start-maximized" class="mono-text"></textarea>
           <div class="hint-text">{{ $t('customArgsHint') }}</div>
+          <div class="hint-text">{{ $t('customArgsGuardHint') }}</div>
         </div>
       </div>
       <div class="modal-footer">
@@ -123,6 +131,7 @@ const form = reactive({
   timezone: 'Auto',
   city: 'Auto (IP Based)',
   language: 'auto',
+  environmentType: 'persistent',
   preProxyOverride: 'default',
   resW: 1920,
   resH: 1080,
@@ -201,6 +210,7 @@ watch(() => uiStore.editModalVisible, async (visible) => {
     form.name = p.name;
     form.proxyStr = p.proxyStr;
     form.tags = (p.tags || []).join(', ');
+    form.environmentType = p.environmentType || 'persistent';
     form.preProxyOverride = p.preProxyOverride || 'default';
     form.resW = fp.screen?.width || 1920;
     form.resH = fp.screen?.height || 1080;
@@ -278,6 +288,7 @@ async function handleSave() {
       name: form.name,
       proxyStr: form.proxyStr,
       tags: tagsRaw.split(/[,，]/).map(s => s.trim()).filter(s => s),
+      environmentType: form.environmentType,
       preProxyOverride: form.preProxyOverride,
       uaMode: browserPreset.uaMode,
       browserType: browserPreset.browserType,

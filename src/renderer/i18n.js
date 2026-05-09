@@ -119,6 +119,10 @@ const enTranslations = {
     msgNodes: "nodes.",
     msgUpdateFailed: "Update Failed:",
     tagsLabel: "Tags (comma separated)",
+    environmentTypeLabel: "Environment Type",
+    environmentTypePersistent: "Persistent",
+    environmentTypeDisposable: "Disposable",
+    environmentTypeHint: "Persistent profiles are for long-term use. Disposable profiles are for short-lived registration or testing.",
     timezoneLabel: "Timezone",
     languageLabel: "Language",
     browserVersionPresetLabel: "UA Option",
@@ -178,6 +182,7 @@ const enTranslations = {
     customArgsDisabled: "Custom launch arguments disabled",
     customArgsLabel: "Custom Launch Arguments",
     customArgsHint: "One argument per line or space-separated. Example: --start-maximized",
+    customArgsGuardHint: "High-risk flags that break sandboxing, site isolation, proxy control, or remote debugging boundaries are blocked automatically.",
     // API Server
     apiTitle: "🔌 API Server",
     apiDesc: "Enable REST API for external profile management (create, launch, edit, delete profiles)",

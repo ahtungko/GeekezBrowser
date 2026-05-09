@@ -9,8 +9,12 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/main/index.js'),
+          'api-http': resolve(__dirname, 'src/main/api-http.js'),
           'chromium-path': resolve(__dirname, 'src/main/chromium-path.js'),
           'close-behavior': resolve(__dirname, 'src/main/close-behavior.js'),
+          'launch-security': resolve(__dirname, 'src/main/launch-security.js'),
+          'path-safety': resolve(__dirname, 'src/main/path-safety.js'),
+          'profile-identity': resolve(__dirname, 'src/main/profile-identity.js'),
           'xray-assets': resolve(__dirname, 'src/main/xray-assets.js'),
           'release-check': resolve(__dirname, 'src/main/release-check.js')
         }

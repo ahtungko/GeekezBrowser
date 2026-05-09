@@ -8,6 +8,9 @@ export const profileService = {
      * 加载所有环境列表
      */
     async loadProfiles() {
+        if (window.electronAPI && typeof window.electronAPI.getProfiles === 'function') {
+            return await window.electronAPI.getProfiles();
+        }
         return await ipcService.invoke('get-profiles');
     },
 
@@ -17,7 +20,9 @@ export const profileService = {
     async launch(id) {
         try {
             const watermarkStyle = localStorage.getItem('geekez_watermark_style') || 'enhanced';
-            const msg = await ipcService.invoke('launch-profile', id, watermarkStyle);
+            const msg = window.electronAPI && typeof window.electronAPI.launchProfile === 'function'
+                ? await window.electronAPI.launchProfile(id, watermarkStyle)
+                : await ipcService.invoke('launch-profile', id, watermarkStyle);
             return {
                 success: true,
                 message: msg || ''
@@ -44,6 +49,9 @@ export const profileService = {
      * 创建/保存新环境
      */
     async saveProfile(data) {
+        if (window.electronAPI && typeof window.electronAPI.saveProfile === 'function') {
+            return await window.electronAPI.saveProfile(data);
+        }
         return await ipcService.invoke('save-profile', data);
     },
 
@@ -52,6 +60,9 @@ export const profileService = {
      */
     async getRunningIds() {
         try {
+            if (window.electronAPI && typeof window.electronAPI.getRunningIds === 'function') {
+                return await window.electronAPI.getRunningIds() || [];
+            }
             return await ipcService.invoke('get-running-ids') || [];
         } catch (e) {
             console.error('Failed to get running IDs:', e);
@@ -65,7 +76,11 @@ export const profileService = {
      */
     async deleteProfile(id) {
         try {
-            await ipcService.invoke('delete-profile', id);
+            if (window.electronAPI && typeof window.electronAPI.deleteProfile === 'function') {
+                await window.electronAPI.deleteProfile(id);
+            } else {
+                await ipcService.invoke('delete-profile', id);
+            }
             return { success: true };
         } catch (error) {
             return { success: false, message: error.message || 'Delete failed' };
@@ -89,6 +104,9 @@ export const profileService = {
      * 更新环境配置
      */
     async updateProfile(profile) {
+        if (window.electronAPI && typeof window.electronAPI.updateProfile === 'function') {
+            return await window.electronAPI.updateProfile(profile);
+        }
         return await ipcService.invoke('update-profile', profile);
     },
 

@@ -121,6 +121,10 @@ window.zhCN = {
     msgNodes: "个节点。",
     msgUpdateFailed: "更新失败：",
     tagsLabel: "标签 (逗号分隔)",
+    environmentTypeLabel: "环境类型",
+    environmentTypePersistent: "长期环境",
+    environmentTypeDisposable: "临时环境",
+    environmentTypeHint: "长期环境适合养号和长期使用；临时环境适合短期注册或测试。",
     timezoneLabel: "时区",
     languageLabel: "语言 (Language)",
     browserVersionPresetLabel: "UA选项",
@@ -180,6 +184,7 @@ window.zhCN = {
     customArgsDisabled: "自定义启动参数已禁用",
     customArgsLabel: "自定义启动参数",
     customArgsHint: "每行一个参数或空格分隔。示例：--start-maximized",
+    customArgsGuardHint: "会自动拦截破坏沙箱、站点隔离、代理控制或远程调试边界的高风险参数。",
     // API 服务
     apiTitle: "🔌 API 服务",
     apiDesc: "启用 REST API 以便外部管理环境（创建、启动、编辑、删除）",
