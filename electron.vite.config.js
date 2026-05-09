@@ -16,6 +16,7 @@ export default defineConfig({
           'network-consistency': resolve(__dirname, 'src/main/network-consistency.js'),
           'path-safety': resolve(__dirname, 'src/main/path-safety.js'),
           'profile-identity': resolve(__dirname, 'src/main/profile-identity.js'),
+          'proxy-error-format': resolve(__dirname, 'src/main/proxy-error-format.js'),
           'proxy-readiness': resolve(__dirname, 'src/main/proxy-readiness.js'),
           'xray-assets': resolve(__dirname, 'src/main/xray-assets.js'),
           'release-check': resolve(__dirname, 'src/main/release-check.js')

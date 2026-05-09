@@ -65,6 +65,7 @@ import { useProfileStore } from '../store/useProfileStore';
 import { profileService } from '../services/profile.service';
 import { buildProfileNetworkSummary } from '../utils/networkConsistency';
 import { buildProfileCardSummary } from '../utils/profileCardSummary';
+import { buildLaunchFeedback } from '../../../shared/launch-feedback.mjs';
 
 const uiStore = useUIStore();
 const profileStore = useProfileStore();
@@ -131,12 +132,9 @@ const toggleSelected = () => {
 
 const launch = async () => {
     const res = await profileService.launch(props.profile.id);
-    if (!res.success && res.message) {
-        uiStore.showAlert('Error: ' + res.message);
-        return;
-    }
-    if (Array.isArray(res.warnings) && res.warnings.length > 0) {
-        uiStore.showAlert(`Launch warnings:\n- ${res.warnings.join('\n- ')}`);
+    const feedback = buildLaunchFeedback(res);
+    if (feedback) {
+        uiStore.showAlert(feedback.text);
     }
 };
 

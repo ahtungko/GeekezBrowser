@@ -34,6 +34,7 @@ const {
 } = require('./api-http');
 const { buildManagedLaunchArgs, sanitizeCustomLaunchArgs } = require('./launch-security');
 const { buildNetworkConsistencyWarnings } = require('./network-consistency');
+const { formatProxyDiagnosticMessage } = require('./proxy-error-format');
 const { resolvePathInsideBase } = require('./path-safety');
 const { buildProxyReadinessFailure } = require('./proxy-readiness');
 const { derivePersonaFingerprintOptions, ensureProfileIdentityMeta, mergeResolvedNetworkMeta, normalizeProfileIdentityList } = require('./profile-identity');
@@ -2694,7 +2695,7 @@ async function runProxyLatencyTest(proxyStr) {
         try {
             outbound = parseProxyLink(proxyStr, "proxy_test");
         } catch (err) {
-            return { success: false, msg: "Format Err" };
+            return { success: false, msg: formatProxyDiagnosticMessage({ category: 'format' }) };
         }
         const config = {
             log: { loglevel: "warning" },
@@ -2726,12 +2727,24 @@ async function runProxyLatencyTest(proxyStr) {
 
         const ready = await waitForLocalPortReady(tempPort, 1500);
         if (!ready || xrayProcess.exitCode !== null) {
-            return { success: false, msg: `Xray crashed: ${xrayErr.substring(0, 150) || 'unknown'}` };
+            return {
+                success: false,
+                msg: formatProxyDiagnosticMessage({
+                    category: 'startup',
+                    rawMessage: xrayErr.substring(0, 150) || 'unknown'
+                })
+            };
         }
 
         const result = await measureSocksConnectLatency(tempPort, 4000);
         if (!result.success && !result.xrayLog && xrayErr) {
             result.xrayLog = xrayErr.substring(0, 500);
+        }
+        if (!result.success) {
+            result.msg = formatProxyDiagnosticMessage({
+                category: 'probe',
+                rawMessage: result.msg || result.error || ''
+            });
         }
         await forceKill(xrayProcess.pid);
         xrayProcess = null;
@@ -2740,7 +2753,7 @@ async function runProxyLatencyTest(proxyStr) {
     } catch (err) {
         if (xrayProcess) try { await forceKill(xrayProcess.pid); } catch (e) { }
         try { fs.unlinkSync(tempConfigPath); } catch (e) { }
-        return { success: false, msg: err.message };
+        return { success: false, msg: formatProxyDiagnosticMessage({ category: 'unknown', rawMessage: err.message }) };
     }
 }
 
@@ -4075,6 +4088,7 @@ const launchProfileHandler = async (event, profileId, watermarkStyle) => {
         if (shouldPersistResolvedProfile) {
             profiles[profileIndex] = profile;
             await fs.writeJson(PROFILES_FILE, profiles);
+            notifyUIRefresh();
         }
 
         launchWarnings = buildNetworkConsistencyWarnings({

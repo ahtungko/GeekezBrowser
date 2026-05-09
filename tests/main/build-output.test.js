@@ -22,6 +22,7 @@ test('build output does not contain unresolved local helper requires', () => {
         'out/main/path-safety.js',
         'out/main/launch-security.js',
         'out/main/profile-identity.js',
+        'out/main/proxy-error-format.js',
         'out/main/proxy-readiness.js'
     ];
 

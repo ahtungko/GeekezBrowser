@@ -21,7 +21,7 @@ test('reports startup failure when local socks port never becomes ready', () => 
         xrayExited: false
     });
 
-    assert.match(failure.message, /proxy service failed to start/i);
+    assert.match(failure.message, /代理服务未启动/);
 });
 
 test('reports probe failure when socks port is up but upstream connectivity is dead', () => {
@@ -30,8 +30,8 @@ test('reports probe failure when socks port is up but upstream connectivity is d
         probeResult: { success: false, msg: 'Timeout' }
     });
 
-    assert.match(failure.message, /proxy connectivity check failed/i);
-    assert.match(failure.message, /timeout/i);
+    assert.match(failure.message, /上游代理连通性检查失败/);
+    assert.match(failure.message, /连接超时/);
 });
 
 test('includes xray log hint when startup crashes early', () => {

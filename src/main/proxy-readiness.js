@@ -1,20 +1,25 @@
+const { formatProxyDiagnosticMessage } = require('./proxy-error-format');
+
 function buildProxyReadinessFailure({ ready, probeResult, xrayExited = false, xrayLog = '' } = {}) {
     if (ready && probeResult && probeResult.success) return null;
 
     if (!ready) {
-        const detail = xrayExited && xrayLog
-            ? ` ${String(xrayLog).trim()}`
-            : '';
         return {
             stage: 'startup',
-            message: `Proxy service failed to start.${detail}`.trim()
+            message: formatProxyDiagnosticMessage({
+                category: 'startup',
+                rawMessage: xrayExited && xrayLog ? String(xrayLog).trim() : ''
+            })
         };
     }
 
     const probeMsg = probeResult?.msg || probeResult?.error || 'unknown error';
     return {
         stage: 'probe',
-        message: `Proxy connectivity check failed: ${probeMsg}`
+        message: formatProxyDiagnosticMessage({
+            category: 'probe',
+            rawMessage: probeMsg
+        })
     };
 }
 
