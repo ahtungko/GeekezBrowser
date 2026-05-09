@@ -21,7 +21,8 @@ test('build output does not contain unresolved local helper requires', () => {
         'out/main/network-consistency.js',
         'out/main/path-safety.js',
         'out/main/launch-security.js',
-        'out/main/profile-identity.js'
+        'out/main/profile-identity.js',
+        'out/main/proxy-readiness.js'
     ];
 
     for (const filePath of expectedBuildFiles) {

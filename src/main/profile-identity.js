@@ -62,6 +62,26 @@ function normalizeNetworkMeta(network = {}) {
     };
 }
 
+function deriveNetworkMetaFromGeoInfo(geoInfo = {}) {
+    const country = String(geoInfo?.countryCode || '').trim().toUpperCase();
+    const timezone = String(geoInfo?.timezone || '').trim();
+    const region = timezone ? timezone.split('/')[0].toLowerCase() : '';
+    return normalizeNetworkMeta({ country, region });
+}
+
+function mergeResolvedNetworkMeta(profile = {}, geoInfo = null) {
+    const next = ensureProfileIdentityMeta(profile);
+    if (!geoInfo) return next;
+
+    const resolved = deriveNetworkMetaFromGeoInfo(geoInfo);
+    next.network = {
+        country: next.network.country || resolved.country,
+        region: next.network.region || resolved.region
+    };
+
+    return next;
+}
+
 function hashSeed(personaSeed, slot = 'default') {
     const seed = String(personaSeed || '').trim();
     const digest = crypto.createHash('sha256').update(`${seed}:${slot}`).digest();
@@ -155,8 +175,10 @@ function normalizeProfileIdentityList(profiles = []) {
 
 module.exports = {
     derivePersonaFingerprintOptions,
+    deriveNetworkMetaFromGeoInfo,
     ensureProfileIdentityMeta,
     generatePersonaSeed,
+    mergeResolvedNetworkMeta,
     normalizeNetworkMeta,
     normalizeEnvironmentType,
     normalizeProfileIdentityList,

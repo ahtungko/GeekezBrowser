@@ -20,6 +20,20 @@
                 <span class="tag">{{ displayScreen }}</span>
                 <span
                     class="tag"
+                    :style="profileCardSummary.environmentType === 'disposable'
+                        ? { border: '1px solid #8e44ad', color: '#8e44ad', background: 'rgba(142,68,173,0.12)' }
+                        : { border: '1px solid #2980b9', color: '#2980b9', background: 'rgba(41,128,185,0.12)' }">
+                    {{ t(profileCardSummary.environmentLabelKey) }}
+                </span>
+                <span
+                    class="tag"
+                    :style="profileCardSummary.locationKnown
+                        ? { border: '1px solid #16a085', color: '#16a085', background: 'rgba(22,160,133,0.12)' }
+                        : { border: '1px solid var(--border)', color: 'var(--text-secondary)', background: 'transparent' }">
+                    {{ profileCardSummary.locationLabel }}
+                </span>
+                <span
+                    class="tag"
                     :style="networkSummary.level === 'warn'
                         ? { border: '1px solid #f39c12', color: '#f39c12', background: 'rgba(243,156,18,0.12)' }
                         : (networkSummary.level === 'ok'
@@ -50,6 +64,7 @@ import { useUIStore } from '../store/useUIStore';
 import { useProfileStore } from '../store/useProfileStore';
 import { profileService } from '../services/profile.service';
 import { buildProfileNetworkSummary } from '../utils/networkConsistency';
+import { buildProfileCardSummary } from '../utils/profileCardSummary';
 
 const uiStore = useUIStore();
 const profileStore = useProfileStore();
@@ -92,6 +107,7 @@ const displayScreen = computed(() => {
     return '0x0';
 });
 
+const profileCardSummary = computed(() => buildProfileCardSummary(props.profile));
 const networkSummary = computed(() => buildProfileNetworkSummary(props.profile));
 
 const quickUpdatePreProxy = async (val) => {

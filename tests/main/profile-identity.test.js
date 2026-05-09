@@ -2,7 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+    deriveNetworkMetaFromGeoInfo,
     derivePersonaFingerprintOptions,
+    mergeResolvedNetworkMeta,
     ensureProfileIdentityMeta,
     generatePersonaSeed,
     normalizeEnvironmentType,
@@ -106,6 +108,46 @@ test('ensureProfileIdentityMeta preserves explicit network metadata', () => {
     });
 
     assert.deepEqual(profile.network, {
+        country: 'JP',
+        region: 'asia'
+    });
+});
+
+test('deriveNetworkMetaFromGeoInfo maps country and region from resolved geo data', () => {
+    const network = deriveNetworkMetaFromGeoInfo({
+        countryCode: 'jp',
+        timezone: 'Asia/Tokyo'
+    });
+
+    assert.deepEqual(network, {
+        country: 'JP',
+        region: 'asia'
+    });
+});
+
+test('mergeResolvedNetworkMeta backfills empty network metadata only', () => {
+    const merged = mergeResolvedNetworkMeta({
+        network: { country: '', region: '' }
+    }, {
+        countryCode: 'SG',
+        timezone: 'Asia/Singapore'
+    });
+
+    assert.deepEqual(merged.network, {
+        country: 'SG',
+        region: 'asia'
+    });
+});
+
+test('mergeResolvedNetworkMeta does not overwrite explicit network metadata', () => {
+    const merged = mergeResolvedNetworkMeta({
+        network: { country: 'JP', region: 'asia' }
+    }, {
+        countryCode: 'US',
+        timezone: 'America/Los_Angeles'
+    });
+
+    assert.deepEqual(merged.network, {
         country: 'JP',
         region: 'asia'
     });

@@ -35,7 +35,8 @@ const {
 const { buildManagedLaunchArgs, sanitizeCustomLaunchArgs } = require('./launch-security');
 const { buildNetworkConsistencyWarnings } = require('./network-consistency');
 const { resolvePathInsideBase } = require('./path-safety');
-const { derivePersonaFingerprintOptions, ensureProfileIdentityMeta, normalizeProfileIdentityList } = require('./profile-identity');
+const { buildProxyReadinessFailure } = require('./proxy-readiness');
+const { derivePersonaFingerprintOptions, ensureProfileIdentityMeta, mergeResolvedNetworkMeta, normalizeProfileIdentityList } = require('./profile-identity');
 
 const uuidv4 = () => crypto.randomUUID();
 const INTERNAL_API_TOKEN = generateInternalApiToken();
@@ -1241,6 +1242,9 @@ async function buildProfileFromInput(rawData, profiles, settings, existingProfil
         name: uniqueName,
         proxyStr,
         tags: normalizeTags(firstDefined(data.tags, existingProfile?.tags, [])),
+        network: data.network && typeof data.network === 'object'
+            ? data.network
+            : existingProfile?.network,
         fingerprint,
         preProxyOverride: firstDefined(data.preProxyOverride, existingProfile?.preProxyOverride, 'default'),
         debugPort,
@@ -3811,7 +3815,7 @@ async function resolveGeoInfoViaProxy(socksPort, timeoutMs = 8000) {
 
                 // Use HTTP/1.0 to avoid chunked encoding
                 socket.write(
-                    'GET /json/?fields=status,timezone,lat,lon,city HTTP/1.0\r\n' +
+                    'GET /json/?fields=status,countryCode,timezone,lat,lon,city HTTP/1.0\r\n' +
                     'Host: ip-api.com\r\n' +
                     'Accept: */*\r\n' +
                     'User-Agent: curl/7.68.0\r\n' +
@@ -3828,6 +3832,7 @@ async function resolveGeoInfoViaProxy(socksPort, timeoutMs = 8000) {
                         if (json.status === 'success' && json.timezone) {
                             console.log(`🔍 [GeoResolve] Parsed: ${JSON.stringify(json)}`);
                             done({
+                                countryCode: json.countryCode || '',
                                 timezone: json.timezone,
                                 latitude: json.lat,
                                 longitude: json.lon,
@@ -3962,6 +3967,7 @@ const launchProfileHandler = async (event, profileId, watermarkStyle) => {
     let logFd;
     let browser = null;
     let launchWarnings = [];
+    let xrayRuntimeLog = '';
     try {
         const profileDir = path.join(DATA_PATH, profileId);
         const userDataDir = path.join(profileDir, 'browser_data');
@@ -3996,23 +4002,44 @@ const launchProfileHandler = async (event, profileId, watermarkStyle) => {
             fs.writeJsonSync(xrayConfigPath, config);
             logFd = fs.openSync(xrayLogPath, 'a');
             xrayProcess = spawn(BIN_PATH, ['-c', xrayConfigPath], { cwd: BIN_DIR, env: { ...process.env, 'XRAY_LOCATION_ASSET': RESOURCES_BIN }, stdio: ['ignore', logFd, logFd], windowsHide: true });
+            xrayProcess.stderr?.on('data', (chunk) => {
+                xrayRuntimeLog += chunk.toString();
+                if (xrayRuntimeLog.length > 4000) {
+                    xrayRuntimeLog = xrayRuntimeLog.slice(-4000);
+                }
+            });
 
             // 优化：减少等待时间，Xray 通常 300ms 内就能启动
             await new Promise(resolve => setTimeout(resolve, 300));
+
+            const ready = await waitForLocalPortReady(localPort, 2000);
+            const probeResult = ready ? await measureSocksConnectLatency(localPort, 4000) : null;
+            const readinessFailure = buildProxyReadinessFailure({
+                ready,
+                probeResult,
+                xrayExited: xrayProcess.exitCode !== null,
+                xrayLog: xrayRuntimeLog
+            });
+            if (readinessFailure) {
+                throw new Error(readinessFailure.message);
+            }
         }
 
         // --- Auto timezone & geolocation resolution via proxy IP ---
         const needsTimezoneResolve = profile.fingerprint?.timezone === 'Auto';
         const needsGeolocationResolve = !profile.fingerprint?.geolocation;
-        console.log(`🔍 [GeoResolve] Check: timezone='${profile.fingerprint?.timezone}', needsTZ=${needsTimezoneResolve}, needsGeo=${needsGeolocationResolve}, localPort=${localPort}`);
+        const needsNetworkMetaResolve = !profile.network?.country || !profile.network?.region;
+        console.log(`🔍 [GeoResolve] Check: timezone='${profile.fingerprint?.timezone}', needsTZ=${needsTimezoneResolve}, needsGeo=${needsGeolocationResolve}, needsNetwork=${needsNetworkMetaResolve}, localPort=${localPort}`);
         let resolvedGeoInfo = null;
-        if (localPort && (needsTimezoneResolve || needsGeolocationResolve)) {
+        let shouldPersistResolvedProfile = false;
+        if (localPort && (needsTimezoneResolve || needsGeolocationResolve || needsNetworkMetaResolve)) {
             try {
                 const geoInfo = await resolveGeoInfoViaProxy(localPort, 5000);
                 resolvedGeoInfo = geoInfo;
                 if (geoInfo) {
                     if (needsTimezoneResolve && geoInfo.timezone) {
                         profile.fingerprint.timezone = geoInfo.timezone;
+                        shouldPersistResolvedProfile = true;
                         console.log(`🌐 Auto timezone resolved: ${geoInfo.timezone}`);
                     }
                     if (needsGeolocationResolve && typeof geoInfo.latitude === 'number' && typeof geoInfo.longitude === 'number') {
@@ -4024,7 +4051,14 @@ const launchProfileHandler = async (event, profileId, watermarkStyle) => {
                         if (!profile.fingerprint.city && geoInfo.city) {
                             profile.fingerprint.city = geoInfo.city;
                         }
+                        shouldPersistResolvedProfile = true;
                         console.log(`📍 Auto geolocation resolved: ${geoInfo.city || 'unknown'} (${geoInfo.latitude}, ${geoInfo.longitude})`);
+                    }
+                    const mergedProfile = mergeResolvedNetworkMeta(profile, geoInfo);
+                    if ((profile.network?.country || '') !== mergedProfile.network.country || (profile.network?.region || '') !== mergedProfile.network.region) {
+                        profile.network = mergedProfile.network;
+                        shouldPersistResolvedProfile = true;
+                        console.log(`🌍 Auto network meta resolved: ${profile.network.country || '??'} / ${profile.network.region || 'unknown'}`);
                     }
                 } else {
                     console.log('⚠️ Auto geo-resolution returned null after all retries');
@@ -4036,6 +4070,11 @@ const launchProfileHandler = async (event, profileId, watermarkStyle) => {
             console.log('🔍 [GeoResolve] Skipped: no proxy (direct connection)');
         } else {
             console.log('🔍 [GeoResolve] Skipped: timezone and geolocation already set');
+        }
+
+        if (shouldPersistResolvedProfile) {
+            profiles[profileIndex] = profile;
+            await fs.writeJson(PROFILES_FILE, profiles);
         }
 
         launchWarnings = buildNetworkConsistencyWarnings({
