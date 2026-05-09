@@ -25,6 +25,7 @@ const {
     readRequestBody,
     resolveExportAllPassword
 } = require('./api-http');
+const { resolvePathInsideBase } = require('./path-safety');
 const { CLOSE_BEHAVIOR, normalizeCloseBehavior, resolveCloseBehavior } = require('./close-behavior');
 const { fetchLatestGitHubReleaseInfo } = require('./release-check');
 const { resolveXrayAssetName } = require('./xray-assets');
@@ -233,12 +234,13 @@ function createInternalApiServer() {
                 ensureInternalApiAuthorized(req, INTERNAL_API_TOKEN);
                 let body = await readRequestBody(req, { maxBytes: INTERNAL_API_MAX_BODY_BYTES });
                 const data = parseJsonBody(body);
-                if (!data.profileId || !data.passwords) {
+                const safeProfileId = String(data.profileId || '').trim();
+                if (!safeProfileId || !data.passwords) {
                     res.writeHead(400); return res.end(JSON.stringify({ success: false, error: 'profileId and passwords required' }));
                 }
-                const pwFile = require('path').join(DATA_PATH, data.profileId, 'passwords.json');
+                const pwFile = resolvePathInsideBase(DATA_PATH, path.posix.join(safeProfileId, 'passwords.json'));
                 await require('fs-extra').ensureDir(require('path').dirname(pwFile));
-                await writeEncryptedPasswords(pwFile, data.passwords, data.profileId);
+                await writeEncryptedPasswords(pwFile, data.passwords, safeProfileId);
                 res.writeHead(200); res.end(JSON.stringify({ success: true, count: data.passwords.length }));
             } catch (err) {
                 res.writeHead(err.status || err.statusCode || 500);
@@ -3573,17 +3575,14 @@ ipcMain.handle('import-full-backup', async (e, { filePath, password }) => {
                 if (fileName.startsWith('_')) continue; // 跳过 _cookies, _passwords
                 if (typeof content !== 'string') continue;
                 try {
-                    // v2: 直接文件名 → Default/ 下
-                    // v1 兼容: 带路径的文件名
-                    if (fileName.includes('/') || fileName.includes('\\')) {
-                        const targetPath = path.join(profileDataDir, fileName);
-                        await fs.ensureDir(path.dirname(targetPath));
-                        await fs.writeFile(targetPath, Buffer.from(content, 'base64'));
-                    } else {
-                        await fs.writeFile(path.join(defaultDir, fileName), Buffer.from(content, 'base64'));
-                    }
+                    const relativeRestorePath = fileName.includes('/') || fileName.includes('\\')
+                        ? fileName
+                        : path.posix.join('Default', fileName);
+                    const targetPath = resolvePathInsideBase(profileDataDir, relativeRestorePath);
+                    await fs.ensureDir(path.dirname(targetPath));
+                    await fs.writeFile(targetPath, Buffer.from(content, 'base64'));
                 } catch (err) {
-                    console.error(`还原文件失败 ${fileName}:`, err.message);
+                    console.error(`Restore skipped unsafe file ${fileName}:`, err.message);
                 }
             }
 
