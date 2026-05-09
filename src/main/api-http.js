@@ -63,12 +63,23 @@ function generateApiToken() {
     return crypto.randomBytes(32).toString('hex');
 }
 
+function generateInternalApiToken() {
+    return crypto.randomBytes(32).toString('hex');
+}
+
 function readApiTokenFromHeaders(headers = {}) {
     const authorization = typeof headers.authorization === 'string' ? headers.authorization.trim() : '';
     const bearerMatch = authorization.match(/^Bearer\s+(.+)$/i);
     if (bearerMatch) return bearerMatch[1].trim();
 
     const headerToken = typeof headers['x-api-token'] === 'string' ? headers['x-api-token'].trim() : '';
+    return headerToken || '';
+}
+
+function readInternalApiTokenFromHeaders(headers = {}) {
+    const headerToken = typeof headers['x-internal-api-token'] === 'string'
+        ? headers['x-internal-api-token'].trim()
+        : '';
     return headerToken || '';
 }
 
@@ -79,6 +90,15 @@ function ensurePublicApiAuthorized(req, expectedToken) {
     const providedToken = readApiTokenFromHeaders(req?.headers || {});
     if (!providedToken) throw createHttpError(401, 'API token required');
     if (providedToken !== expectedToken) throw createHttpError(401, 'Invalid API token');
+}
+
+function ensureInternalApiAuthorized(req, expectedToken) {
+    if (String(req?.method || '').toUpperCase() === 'OPTIONS') return;
+    if (!expectedToken) throw createHttpError(500, 'Internal API token is not configured');
+
+    const providedToken = readInternalApiTokenFromHeaders(req?.headers || {});
+    if (!providedToken) throw createHttpError(401, 'Internal API token required');
+    if (providedToken !== expectedToken) throw createHttpError(401, 'Invalid internal API token');
 }
 
 function normalizePublicApiAuthSettings(settings = {}) {
@@ -162,12 +182,15 @@ module.exports = {
     PUBLIC_API_MAX_BODY_BYTES,
     applyCorsHeaders,
     createHttpError,
+    ensureInternalApiAuthorized,
     ensurePublicApiAuthorized,
     generateApiToken,
+    generateInternalApiToken,
     isOriginAllowed,
     normalizePublicApiAuthSettings,
     parseJsonBody,
     readApiTokenFromHeaders,
+    readInternalApiTokenFromHeaders,
     readRequestBody,
     resolveExportAllPassword
 };

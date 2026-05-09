@@ -5,9 +5,12 @@ const { URLSearchParams } = require('node:url');
 
 const {
     applyCorsHeaders,
+    ensureInternalApiAuthorized,
     ensurePublicApiAuthorized,
+    generateInternalApiToken,
     normalizePublicApiAuthSettings,
     readApiTokenFromHeaders,
+    readInternalApiTokenFromHeaders,
     readRequestBody,
     resolveExportAllPassword,
     PUBLIC_API_MAX_BODY_BYTES,
@@ -143,6 +146,51 @@ test('normalizePublicApiAuthSettings preserves explicit token', () => {
     const normalized = normalizePublicApiAuthSettings({ apiAuthEnabled: true, apiToken: 'keep-me' });
 
     assert.equal(normalized.apiToken, 'keep-me');
+});
+
+test('generateInternalApiToken creates a 64-hex runtime secret', () => {
+    const token = generateInternalApiToken();
+    assert.match(token, /^[A-Fa-f0-9]{64}$/);
+});
+
+test('readInternalApiTokenFromHeaders reads x-internal-api-token', () => {
+    const token = readInternalApiTokenFromHeaders({
+        'x-internal-api-token': 'internal-secret'
+    });
+
+    assert.equal(token, 'internal-secret');
+});
+
+test('ensureInternalApiAuthorized rejects missing internal token', () => {
+    assert.throws(
+        () => ensureInternalApiAuthorized({ method: 'POST', headers: {} }, 'expected-secret'),
+        (error) => {
+            assert.equal(error.statusCode, 401);
+            assert.match(error.message, /internal api token required/i);
+            return true;
+        }
+    );
+});
+
+test('ensureInternalApiAuthorized rejects wrong internal token', () => {
+    assert.throws(
+        () => ensureInternalApiAuthorized({
+            method: 'POST',
+            headers: { 'x-internal-api-token': 'wrong-secret' }
+        }, 'expected-secret'),
+        (error) => {
+            assert.equal(error.statusCode, 401);
+            assert.match(error.message, /invalid internal api token/i);
+            return true;
+        }
+    );
+});
+
+test('ensureInternalApiAuthorized accepts the expected runtime token', () => {
+    assert.doesNotThrow(() => ensureInternalApiAuthorized({
+        method: 'POST',
+        headers: { 'x-internal-api-token': 'expected-secret' }
+    }, 'expected-secret'));
 });
 
 test('readRequestBody rejects bodies larger than the configured limit', async () => {

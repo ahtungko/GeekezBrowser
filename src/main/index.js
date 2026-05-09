@@ -17,7 +17,9 @@ const {
     INTERNAL_API_MAX_BODY_BYTES,
     PUBLIC_API_MAX_BODY_BYTES,
     applyCorsHeaders,
+    ensureInternalApiAuthorized,
     ensurePublicApiAuthorized,
+    generateInternalApiToken,
     normalizePublicApiAuthSettings,
     parseJsonBody,
     readRequestBody,
@@ -32,6 +34,7 @@ const initSqlJs = require('sql.js');
 const { SocksClient } = require('socks');
 
 const uuidv4 = () => crypto.randomUUID();
+const INTERNAL_API_TOKEN = generateInternalApiToken();
 
 let getPortApiPromise = null;
 async function resolveGetPortApi() {
@@ -227,6 +230,7 @@ function createInternalApiServer() {
 
         if (req.method === 'POST' && url.pathname === '/api/passwords/sync') {
             try {
+                ensureInternalApiAuthorized(req, INTERNAL_API_TOKEN);
                 let body = await readRequestBody(req, { maxBytes: INTERNAL_API_MAX_BODY_BYTES });
                 const data = parseJsonBody(body);
                 if (!data.profileId || !data.passwords) {
@@ -2105,6 +2109,7 @@ async function generateExtension(profilePath, fingerprint, profileName, watermar
     const backgroundJs = `
 const PROFILE_ID = ${JSON.stringify(profileId || '')};
 const API_PORT = ${apiPort};
+const INTERNAL_API_TOKEN = ${JSON.stringify(INTERNAL_API_TOKEN)};
 const INIT_PASSWORDS = ${JSON.stringify(passwords)};
 
 // 初始化密码数据
@@ -2150,7 +2155,10 @@ async function deletePassword(origin, username) {
 function syncToElectron(passwords) {
     fetch(\`http://127.0.0.1:\${API_PORT}/api/passwords/sync\`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Internal-API-Token': INTERNAL_API_TOKEN
+        },
         body: JSON.stringify({ profileId: PROFILE_ID, passwords })
     }).then(r => r.json())
       .then(res => console.log('Sync to Electron success:', res))
