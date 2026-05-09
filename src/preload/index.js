@@ -1,22 +1,31 @@
-// preload.js
 const { contextBridge, ipcRenderer } = require('electron');
+const {
+    assertAllowedEventChannel,
+    assertAllowedInvokeChannel
+} = require('../shared/ipc-contract');
+
+function safeInvoke(channel, ...args) {
+    return ipcRenderer.invoke(assertAllowedInvokeChannel(channel), ...args);
+}
+
+function safeOn(channel, callback) {
+    const allowedChannel = assertAllowedEventChannel(channel);
+    ipcRenderer.on(allowedChannel, (event, ...args) => callback(event, ...args));
+}
 
 contextBridge.exposeInMainWorld('electronAPI', {
-    getProfiles: () => ipcRenderer.invoke('get-profiles'),
-    saveProfile: (data) => ipcRenderer.invoke('save-profile', data),
-    updateProfile: (data) => ipcRenderer.invoke('update-profile', data),
-    deleteProfile: (id) => ipcRenderer.invoke('delete-profile', id),
-    launchProfile: (id, watermarkStyle) => ipcRenderer.invoke('launch-profile', id, watermarkStyle),
-    getSettings: () => ipcRenderer.invoke('get-settings'),
-    saveSettings: (data) => ipcRenderer.invoke('save-settings', data),
-    exportProfile: (id) => ipcRenderer.invoke('export-profile', id),
-    importProfile: () => ipcRenderer.invoke('import-profile'),
-    // 通用 invoke，支持多参数传递
-    invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
-    getRunningIds: () => ipcRenderer.invoke('get-running-ids'),
-    onProfileStatus: (callback) => ipcRenderer.on('profile-status', (event, data) => callback(data)),
-    // API events
-    onRefreshProfiles: (callback) => ipcRenderer.on('refresh-profiles', () => callback()),
-    onApiLaunchProfile: (callback) => ipcRenderer.on('api-launch-profile', (event, id) => callback(id)),
-    onExtensionInstallProgress: (callback) => ipcRenderer.on('extension-install-progress', (event, payload) => callback(payload))
+    getProfiles: () => safeInvoke('get-profiles'),
+    saveProfile: (data) => safeInvoke('save-profile', data),
+    updateProfile: (data) => safeInvoke('update-profile', data),
+    deleteProfile: (id) => safeInvoke('delete-profile', id),
+    launchProfile: (id, watermarkStyle) => safeInvoke('launch-profile', id, watermarkStyle),
+    getSettings: () => safeInvoke('get-settings'),
+    saveSettings: (data) => safeInvoke('save-settings', data),
+    invoke: (channel, ...args) => safeInvoke(channel, ...args),
+    on: (channel, callback) => safeOn(channel, callback),
+    getRunningIds: () => safeInvoke('get-running-ids'),
+    onProfileStatus: (callback) => safeOn('profile-status', (_event, data) => callback(data)),
+    onRefreshProfiles: (callback) => safeOn('refresh-profiles', () => callback()),
+    onApiLaunchProfile: (callback) => safeOn('api-launch-profile', (_event, id) => callback(id)),
+    onExtensionInstallProgress: (callback) => safeOn('extension-install-progress', (_event, payload) => callback(payload))
 });
